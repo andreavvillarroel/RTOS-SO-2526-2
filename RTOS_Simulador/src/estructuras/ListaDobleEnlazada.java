@@ -5,7 +5,10 @@
 package estructuras;
 
 /**
- *
+ * Lista Doblemente Enlazada Personalizada.
+ * Sustituye a ArrayList y LinkedList de java.util
+ * 
+ * @param <T> Tipo de dato a almacenar
  * @author Andrea
  */
 public class ListaDobleEnlazada<T> {
