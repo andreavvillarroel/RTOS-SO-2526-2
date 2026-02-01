@@ -5,6 +5,7 @@
 package logica;
 
 import modelos.Process;
+import logica.Kernel;
 
 /**
  * Hilo que marca el paso del tiempo (ciclos)
@@ -15,14 +16,17 @@ public class SimulationClock extends Thread {
     private int totalCycles;      // Contador global de ciclos
     private boolean running;      // Control del hilo
     private boolean interrupted = false;
+    private Kernel kernel; 
     
     // Proceso que está actualmente en CPU 
     private Process currentProcess;
 
-    public SimulationClock(int durationMs) {
+    public SimulationClock(int durationMs, Kernel kernel) {
         this.cycleDurationMs = durationMs;
+        this.kernel = kernel;
         this.totalCycles = 0;
         this.running = false;
+        
     }
     
     public void handleInterrupt() {
@@ -60,6 +64,12 @@ public class SimulationClock extends Thread {
                     }
                 } else {
                     System.out.println("[Ciclo " + totalCycles + "] CPU Ociosa (Esperando proceso...)");
+                    this.currentProcess = kernel.getNextProcess(); 
+    
+                    if (currentProcess != null) {
+                        currentProcess.setStatus("Ejecución");
+                        System.out.println("[KERNEL] Proceso " + currentProcess.getName() + " asignado a CPU.");
+                    }
                 }
 
             } catch (InterruptedException e) {

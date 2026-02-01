@@ -19,7 +19,7 @@ public class Kernel {
     // Configuración de Memoria 
     private int maxRamProcesses = 5; // Ejemplo: solo 5 procesos caben en RAM
     
-    // Semáforo para Exclusión Mutua (Obligatorio según el PDF)
+    // Semáforo para Exclusión Mutua 
     // Protege el acceso a las colas cuando varios hilos intentan usarlas
     private Semaphore mutex;
 
@@ -61,6 +61,29 @@ public class Kernel {
     public MyQueue<Process> getReadyQueue() { return readyQueue; }
     
     public void setMaxRamProcesses(int value) {
-    this.maxRamProcesses = value;
+        this.maxRamProcesses = value;
+    }
+    
+    public Process getNextProcess() {
+    try {
+        mutex.acquire();
+        
+        // si la RAM está vacía, intentamos traer a alguien de SWAP
+        if (readyQueue.isEmpty() && !suspendedReadyQueue.isEmpty()) {
+            Process pFromSwap = suspendedReadyQueue.dequeue();
+            pFromSwap.setStatus("Listo");
+            readyQueue.enqueue(pFromSwap);
+            System.out.println("[KERNEL-MEMORIA] Proceso " + pFromSwap.getName() + " movido de SWAP a RAM.");
+        }
+        
+        // siguiente de la RAM para ejecutarlo
+        Process p = readyQueue.dequeue();
+        mutex.release();
+        return p;
+        
+    } catch (InterruptedException e) {
+        return null;
+    }
 }
+    
 }
