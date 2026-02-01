@@ -6,6 +6,7 @@ package rtos_simulador;
 
 import estructuras.MyQueue;
 import modelos.Process;
+import logica.SimulationClock;
 /**
  *
  * @author Dell
@@ -17,21 +18,14 @@ public class RTOS_Simulador {
      */
     public static void main(String[] args) {
      // 1. Creamos la cola de listos usando TU estructura
-        MyQueue<Process> readyQueue = new MyQueue<>();
+        Process p1 = new Process("001", "Sensor_Altitud", 5, 1, 10);
+    SimulationClock clock = new SimulationClock(1000); 
 
-        // 2. Creamos un proceso de prueba
-        Process p1 = new Process("001", "Sensor_Altitud", 10, 1, 50);
-
-        // 3. Lo metemos en la cola
-        readyQueue.enqueue(p1);
-
-        // 4. Probamos si sale correctamente
-        Process extraido = readyQueue.dequeue();
-        System.out.println("Proceso recuperado de la cola: " + extraido.getName());
-
-        if(extraido.getName().equals("Sensor_Altitud")) {
-            System.out.println("¡Tus estructuras y el modelo funcionan perfecto!");
-        }
+    // 2. Le damos el proceso al reloj y arrancamos
+    clock.setCurrentProcess(p1);
+    clock.start(); // Esto llama al método run() en un hilo nuevo
+    
+    System.out.println("Simulación iniciada...");
     }
     
 }
