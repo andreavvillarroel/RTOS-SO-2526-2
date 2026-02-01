@@ -46,38 +46,41 @@ public class SimulationClock extends Thread {
                     interrupted = false; 
                 }
 
-                // 2. El "Tick" del reloj: Esperamos la duración del ciclo
                 Thread.sleep(cycleDurationMs);
                 totalCycles++;
-                
-                // 3. Lógica de ejecución del proceso actual
-                if (currentProcess != null) {
-                    if (!currentProcess.isFinished()) {
-                        currentProcess.executeInstruction();
-                        currentProcess.updateDeadline();
-                        System.out.println("[Ciclo " + totalCycles + "] Ejecutando: " + currentProcess.getName() 
-                                           + " | Deadline Restante: " + currentProcess.getRemainingDeadline());
+                kernel.updateBlockedProcesses();
+
+                // Miramos qué hay en la CPU física
+                Process p = kernel.getCpu().getCurrentProcess();
+
+                if (p != null) {
+                    if (p.shouldBlock()) {
+                        kernel.blockProcess(p); // El kernel lo saca de la CPU y lo bloquea
+                    } else if (!p.isFinished()) {
+                        p.executeInstruction();
+                        p.updateDeadline();
+                        System.out.println("[Ciclo " + totalCycles + "] " + p.getName() + " en CPU.");
                     } else {
-                        System.out.println("[Ciclo " + totalCycles + "] El proceso " + currentProcess.getName() + " ha TERMINADO.");
-                        currentProcess.setStatus("Terminado");
-                        this.currentProcess = null; // Liberamos la CPU
+                        System.out.println("[Ciclo " + totalCycles + "] " + p.getName() + " TERMINADO.");
+                        p.setStatus("Terminado");
+                        kernel.getCpu().release(); // Liberamos la CPU física
                     }
                 } else {
-                    System.out.println("[Ciclo " + totalCycles + "] CPU Ociosa (Esperando proceso...)");
-                    this.currentProcess = kernel.getNextProcess(); 
-    
-                    if (currentProcess != null) {
-                        currentProcess.setStatus("Ejecución");
-                        System.out.println("[KERNEL] Proceso " + currentProcess.getName() + " asignado a CPU.");
+                    // CPU libre: Pedimos al Kernel el siguiente
+                    Process next = kernel.getNextProcess();
+                    if (next != null) {
+                        next.setStatus("Ejecución");
+                        kernel.getCpu().setProcess(next); // Ponemos el proceso en el socket de la CPU
+                        System.out.println("[Ciclo " + totalCycles + "] KERNEL: Asignando " + next.getName());
+                    } else {
+                        System.out.println("[Ciclo " + totalCycles + "] CPU Ociosa...");
                     }
                 }
 
-            } catch (InterruptedException e) {
-                System.err.println("Reloj interrumpido");
-                running = false;
-            }
+            } catch (InterruptedException e) { running = false; }
         }
     }
+    
 
     // Métodos de control
     public void stopSimulation() { this.running = false; }

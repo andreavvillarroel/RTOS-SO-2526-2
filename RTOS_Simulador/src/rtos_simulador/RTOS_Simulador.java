@@ -19,29 +19,36 @@ public class RTOS_Simulador {
      * @param args the command line arguments
      */
     public static void main(String[] args) {
-        // 1. Inicializamos el Kernel y el Reloj
-        Kernel kernel = new Kernel();
-        SimulationClock clock = new SimulationClock(1000, kernel); // 1 segundo por ciclo
+        Kernel kernel = new Kernel(); // El kernel ya trae su CPU y Memoria (Límite 5)
+        SimulationClock clock = new SimulationClock(800, kernel); // Ciclos un poco más rápidos
+        InterruptHandler interrupts = new InterruptHandler(clock);
 
-        System.out.println("--- INICIANDO PRUEBA DE KERNEL (RAM MÁX: 5) ---");
+        System.out.println("=== INICIANDO VALIDACIÓN DE ARQUITECTURA MODULAR ===");
+        System.out.println("Configuración: RAM Límite = 5 | SWAP = Ilimitado\n");
 
-        // 2. Intentamos cargar 8 procesos
-        for (int i = 1; i <= 8; i++) {
-            Process p = new Process("ID-" + i, "Tarea_" + i, 10, 1, 100);
-            kernel.addProcess(p);
-        }
+        // 2. Cargamos 7 procesos para forzar el uso de SWAP
+        // Parámetros: ID, Nombre, Instrucciones, Prioridad, Deadline, Inst_Bloqueo, Duracion_Bloqueo
+        
+        // Procesos que entrarán en RAM
+        kernel.addProcess(new Process("P1", "Sensor_1", 6, 1, 100, 3, 2)); // Se bloquea en ciclo 3
+        kernel.addProcess(new Process("P2", "Sensor_2", 4, 1, 100, -1, 0)); // No se bloquea
+        kernel.addProcess(new Process("P3", "Camara_1", 5, 1, 100, 2, 3)); // Se bloquea en ciclo 2
+        kernel.addProcess(new Process("P4", "Camara_2", 3, 1, 100, -1, 0)); 
+        kernel.addProcess(new Process("P5", "Telemetria", 4, 1, 100, -1, 0));
 
-        // 3. Verificamos el estado de las colas
-        System.out.println("\n--- RESULTADO DE CARGA ---");
-        System.out.println("Procesos en RAM (Ready): " + kernel.getReadyQueue().getSize());
-        // Nota: Asegúrate de tener getters para las otras colas en tu clase Kernel
-        // System.out.println("Procesos en SWAP (Suspended): " + kernel.getSuspendedReadyQueue().getSize());
+        // Procesos que irán a SWAP
+        kernel.addProcess(new Process("P6", "Antena_A", 5, 1, 100, -1, 0));
+        kernel.addProcess(new Process("P7", "Antena_B", 5, 1, 100, -1, 0));
 
-        // 4. Simulamos que el reloj toma el primer proceso de la RAM
-        if (!kernel.getReadyQueue().isEmpty()) {
-            clock.setCurrentProcess(kernel.getReadyQueue().dequeue());
-            clock.start();
-        }
+        System.out.println("\nEstado inicial de Memoria:");
+        System.out.println("En RAM (Ready): " + kernel.getMemory().getReadyQueue().getSize());
+        System.out.println("En SWAP (Suspended): " + kernel.getMemory().getSuspendedReadyQueue().getSize());
+        System.out.println("\n--- ARRANCANDO RELOJ ---\n");
+
+        // 3. Encendemos los motores
+        clock.start();
+        interrupts.start();
     }
+
     
 }

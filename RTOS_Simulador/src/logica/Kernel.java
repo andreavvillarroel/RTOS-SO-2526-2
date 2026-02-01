@@ -1,89 +1,89 @@
-/*
- * Click nbfs://nbhost/SystemFileSystem/Templates/Licenses/license-default.txt to change this license
- * Click nbfs://nbhost/SystemFileSystem/Templates/Classes/Class.java to edit this template
- */
 package logica;
+
 import modelos.Process;
-import estructuras.MyQueue;
+import modelos.CPU;
+import modelos.Memory;
 import java.util.concurrent.Semaphore;
-/**
- * Administrador central
- * @author Andrea
- */
+
 public class Kernel {
-    private MyQueue<Process> readyQueue;
-    private MyQueue<Process> blockedQueue;
-    private MyQueue<Process> suspendedReadyQueue;
-    private MyQueue<Process> suspendedBlockedQueue;
-    
-    // Configuración de Memoria 
-    private int maxRamProcesses = 5; // Ejemplo: solo 5 procesos caben en RAM
-    
-    // Semáforo para Exclusión Mutua 
-    // Protege el acceso a las colas cuando varios hilos intentan usarlas
+    private Memory memory;
+    private CPU cpu;
     private Semaphore mutex;
 
     public Kernel() {
-        this.readyQueue = new MyQueue<>();
-        this.blockedQueue = new MyQueue<>();
-        this.suspendedReadyQueue = new MyQueue<>();
-        this.suspendedBlockedQueue = new MyQueue<>();
-        this.mutex = new Semaphore(1); // 1 permiso = Exclusión mutua
+        this.memory = new Memory(5); // Iniciamos RAM con límite de 5
+        this.cpu = new CPU();
+        this.mutex = new Semaphore(1);
     }
 
-    /**
-     * Lógica del Planificador de Mediano Plazo:
-     * Si la RAM está llena, envía el proceso a la cola de Suspendidos.
-     */
+    // --- Gestión de Memoria y Procesos ---
+
     public void addProcess(Process p) {
         try {
-            mutex.acquire(); // Bloqueamos el acceso para otros hilos
-            
-            int processesInRAM = readyQueue.getSize() + blockedQueue.getSize();
-            
-            if (processesInRAM < maxRamProcesses) {
+            mutex.acquire();
+            if (memory.getRamUsage() < memory.getMaxRamProcesses()) {
                 p.setStatus("Listo");
-                readyQueue.enqueue(p);
-                System.out.println("[MEMORIA] Proceso " + p.getName() + " cargado en RAM.");
+                memory.getReadyQueue().enqueue(p);
+                System.out.println("[MEMORIA] " + p.getName() + " cargado en RAM.");
             } else {
                 p.setStatus("Listo-Suspendido");
-                suspendedReadyQueue.enqueue(p);
-                System.out.println("[MEMORIA SATURADA] Proceso " + p.getName() + " enviado a SWAP (Memoria Secundaria).");
+                memory.getSuspendedReadyQueue().enqueue(p);
+                System.out.println("[MEMORIA SATURADA] " + p.getName() + " enviado a SWAP.");
             }
-            
-            mutex.release(); // Liberamos el acceso
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
+            mutex.release();
+        } catch (InterruptedException e) { e.printStackTrace(); }
     }
 
-    // Getters para las colas
-    public MyQueue<Process> getReadyQueue() { return readyQueue; }
-    
-    public void setMaxRamProcesses(int value) {
-        this.maxRamProcesses = value;
-    }
-    
     public Process getNextProcess() {
-    try {
-        mutex.acquire();
-        
-        // si la RAM está vacía, intentamos traer a alguien de SWAP
-        if (readyQueue.isEmpty() && !suspendedReadyQueue.isEmpty()) {
-            Process pFromSwap = suspendedReadyQueue.dequeue();
-            pFromSwap.setStatus("Listo");
-            readyQueue.enqueue(pFromSwap);
-            System.out.println("[KERNEL-MEMORIA] Proceso " + pFromSwap.getName() + " movido de SWAP a RAM.");
-        }
-        
-        // siguiente de la RAM para ejecutarlo
-        Process p = readyQueue.dequeue();
-        mutex.release();
-        return p;
-        
-    } catch (InterruptedException e) {
-        return null;
+        try {
+            mutex.acquire();
+            // Lógica de Swap-In
+            if (memory.getReadyQueue().isEmpty() && !memory.getSuspendedReadyQueue().isEmpty()) {
+                Process pFromSwap = memory.getSuspendedReadyQueue().dequeue();
+                pFromSwap.setStatus("Listo");
+                memory.getReadyQueue().enqueue(pFromSwap);
+                System.out.println("[KERNEL] Movido de SWAP a RAM: " + pFromSwap.getName());
+            }
+
+            Process p = memory.getReadyQueue().dequeue();
+            mutex.release();
+            return p;
+        } catch (InterruptedException e) { return null; }
     }
-}
-    
+
+    // --- Gestión de Bloqueos ---
+
+    public void blockProcess(Process p) {
+        try {
+            mutex.acquire();
+            p.startIO();
+            memory.getBlockedQueue().enqueue(p);
+            cpu.release(); //Liberamos la CPU física
+            mutex.release();
+            System.out.println("[I/O] Proceso " + p.getName() + " bloqueado.");
+        } catch (InterruptedException e) { e.printStackTrace(); }
+    }
+
+    public void updateBlockedProcesses() {
+        try {
+            mutex.acquire();
+            int size = memory.getBlockedQueue().getSize();
+            for (int i = 0; i < size; i++) {
+                Process p = memory.getBlockedQueue().dequeue();
+                p.tickIO();
+                if (p.isIoFinished()) {
+                    p.setStatus("Listo");
+                    memory.getReadyQueue().enqueue(p);
+                    System.out.println("[I/O] " + p.getName() + " vuelve a Ready.");
+                } else {
+                    memory.getBlockedQueue().enqueue(p);
+                }
+            }
+            mutex.release();
+        } catch (InterruptedException e) { e.printStackTrace(); }
+    }
+
+    // Getters para que el Reloj y la GUI accedan a las piezas
+    public CPU getCpu() { return cpu; }
+    public Memory getMemory() { return memory; }
 }
