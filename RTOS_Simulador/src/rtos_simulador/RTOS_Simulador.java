@@ -7,6 +7,7 @@ package rtos_simulador;
 import estructuras.MyQueue;
 import modelos.Process;
 import logica.SimulationClock;
+import logica.InterruptHandler;
 /**
  *
  * @author Dell
@@ -17,15 +18,14 @@ public class RTOS_Simulador {
      * @param args the command line arguments
      */
     public static void main(String[] args) {
-     // 1. Creamos la cola de listos usando TU estructura
-        Process p1 = new Process("001", "Sensor_Altitud", 5, 1, 10);
-    SimulationClock clock = new SimulationClock(1000); 
+        Process p1 = new Process("001", "Sensor_Altitud", 20, 1, 50);
+        SimulationClock clock = new SimulationClock(1000);
+        InterruptHandler interruptHandler = new InterruptHandler(clock);
 
-    // 2. Le damos el proceso al reloj y arrancamos
-    clock.setCurrentProcess(p1);
-    clock.start(); // Esto llama al método run() en un hilo nuevo
-    
-    System.out.println("Simulación iniciada...");
+        clock.setCurrentProcess(p1);
+
+        clock.start();           // Arranca el tiempo
+        interruptHandler.start(); // Arranca las emergencias
     }
     
 }
