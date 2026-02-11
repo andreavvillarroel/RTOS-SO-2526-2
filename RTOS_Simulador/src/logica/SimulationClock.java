@@ -49,36 +49,14 @@ public class SimulationClock extends Thread {
                 Thread.sleep(cycleDurationMs);
                 totalCycles++;
                 kernel.updateBlockedProcesses();
-
-                // Miramos qué hay en la CPU física
-                Process p = kernel.getCpu().getCurrentProcess();
-
-                if (p != null) {
-                    if (p.shouldBlock()) {
-                        kernel.blockProcess(p); // El kernel lo saca de la CPU y lo bloquea
-                    } else if (!p.isFinished()) {
-                        p.executeInstruction();
-                        p.updateDeadline();
-                        System.out.println("[Ciclo " + totalCycles + "] " + p.getName() + " en CPU.");
-                    } else {
-                        System.out.println("[Ciclo " + totalCycles + "] " + p.getName() + " TERMINADO.");
-                        p.setStatus("Terminado");
-                        kernel.getCpu().release(); // Liberamos la CPU física
-                    }
-                } else {
-                    // CPU libre: Pedimos al Kernel el siguiente
-                    Process next = kernel.getNextProcess();
-                    if (next != null) {
-                        next.setStatus("Ejecución");
-                        kernel.getCpu().setProcess(next); // Ponemos el proceso en el socket de la CPU
-                        System.out.println("[Ciclo " + totalCycles + "] KERNEL: Asignando " + next.getName());
-                    } else {
-                        System.out.println("[Ciclo " + totalCycles + "] CPU Ociosa...");
-                    }
-                }
+                
+                // Delegamos toda la lógica al planificador EDF del Kernel
+                kernel.executeEdfCycle(totalCycles);
 
             } catch (InterruptedException e) { running = false; }
         }
+        // Al terminar la simulación, imprimir reportes de misión
+        kernel.printMissionReports();
     }
     
 

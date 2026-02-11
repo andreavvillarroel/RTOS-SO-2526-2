@@ -79,4 +79,19 @@ public class Process {
     public void startIO() {this.remainingIoTime = ioDuration;this.hasDoneIO = true;this.status = "Bloqueado";}
     public void tickIO() {if (remainingIoTime > 0) remainingIoTime--;}
     public boolean isIoFinished() {return remainingIoTime <= 0;}
+    
+    // --- Getters agregados para el Planificador EDF ---
+    public int getPc() { return pc; }
+    public int getMar() { return mar; }
+    public int getDeadline() { return deadline; }
+
+    /**
+     * Restaura los registros PC y MAR al recargar un proceso
+     * que fue expulsado por preempción (cambio de contexto).
+     */
+    public void restoreContext(int pc, int mar) {
+        this.pc = pc;
+        this.mar = mar;
+    }
 }
+    

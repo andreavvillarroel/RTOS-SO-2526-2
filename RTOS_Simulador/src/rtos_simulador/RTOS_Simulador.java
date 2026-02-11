@@ -30,15 +30,15 @@ public class RTOS_Simulador {
         // Parámetros: ID, Nombre, Instrucciones, Prioridad, Deadline, Inst_Bloqueo, Duracion_Bloqueo
         
         // Procesos que entrarán en RAM
-        kernel.addProcess(new Process("P1", "Sensor_1", 6, 1, 100, 3, 2)); // Se bloquea en ciclo 3
-        kernel.addProcess(new Process("P2", "Sensor_2", 4, 1, 100, -1, 0)); // No se bloquea
-        kernel.addProcess(new Process("P3", "Camara_1", 5, 1, 100, 2, 3)); // Se bloquea en ciclo 2
-        kernel.addProcess(new Process("P4", "Camara_2", 3, 1, 100, -1, 0)); 
-        kernel.addProcess(new Process("P5", "Telemetria", 4, 1, 100, -1, 0));
+        kernel.addProcess(new Process("P1", "Sensor_1", 6, 1, 20, 3, 2)); // Se bloquea en ciclo 3
+        kernel.addProcess(new Process("P2", "Sensor_2", 4, 1, 12, -1, 0)); // No se bloquea
+        kernel.addProcess(new Process("P3", "Camara_1", 5, 1, 8, 2, 3)); // Se bloquea en ciclo 2
+        kernel.addProcess(new Process("P4", "Camara_2", 3, 1, 25, -1, 0)); 
+        kernel.addProcess(new Process("P5", "Telemetria", 4, 1, 15, -1, 0));
 
         // Procesos que irán a SWAP
-        kernel.addProcess(new Process("P6", "Antena_A", 5, 1, 100, -1, 0));
-        kernel.addProcess(new Process("P7", "Antena_B", 5, 1, 100, -1, 0));
+        kernel.addProcess(new Process("P6", "Antena_A", 5, 1, 18, -1, 0));
+        kernel.addProcess(new Process("P7", "Antena_B", 5, 1, 3, -1, 0));
 
         System.out.println("\nEstado inicial de Memoria:");
         System.out.println("En RAM (Ready): " + kernel.getMemory().getReadyQueue().getSize());
