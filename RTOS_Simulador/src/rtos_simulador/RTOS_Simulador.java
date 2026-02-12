@@ -45,7 +45,8 @@ public class RTOS_Simulador {
         System.out.println("En SWAP (Suspended): " + kernel.getMemory().getSuspendedReadyQueue().getSize());
         System.out.println("\n--- ARRANCANDO RELOJ ---\n");
 
-        // 3. Encendemos los motores
+        // 3. Encendemos los 
+        clock.setInterruptHandler(interrupts); // Para detener interrupciones al finalizar
         clock.start();
         interrupts.start();
     }

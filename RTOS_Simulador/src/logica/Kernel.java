@@ -200,4 +200,14 @@ public class Kernel {
         scheduler.printContextLog();
         scheduler.printFailureReport();
     }
+    
+    // --- Condición de parada: no quedan procesos vivos ---
+    public boolean isSimulationComplete() {
+        return cpu.getCurrentProcess() == null
+            && memory.getReadyQueue().isEmpty()
+            && memory.getBlockedQueue().isEmpty()
+            && memory.getSuspendedReadyQueue().isEmpty()
+            && memory.getSuspendedBlockedQueue().isEmpty();
+    }
+      
 }

@@ -17,6 +17,7 @@ public class SimulationClock extends Thread {
     private boolean running;      // Control del hilo
     private boolean interrupted = false;
     private Kernel kernel; 
+    private InterruptHandler interruptHandler; // Referencia para detenerlo al finalizar
     
     // Proceso que está actualmente en CPU 
     private Process currentProcess;
@@ -52,11 +53,20 @@ public class SimulationClock extends Thread {
                 
                 // Delegamos toda la lógica al planificador EDF del Kernel
                 kernel.executeEdfCycle(totalCycles);
+                
+                // Condición de parada: todos los procesos terminaron o fallaron
+                if (kernel.isSimulationComplete()) {
+                    System.out.println("\n[RELOJ] Simulación completada en " + totalCycles + " ciclos.");
+                    running = false;
+                }
 
             } catch (InterruptedException e) { running = false; }
         }
         // Al terminar la simulación, imprimir reportes de misión
         kernel.printMissionReports();
+        if (interruptHandler != null) {
+            interruptHandler.stopHandler();
+        }
     }
     
 
@@ -67,5 +77,9 @@ public class SimulationClock extends Thread {
     
     public void setCurrentProcess(Process p) {
         this.currentProcess = p;
+    }
+    
+    public void setInterruptHandler(InterruptHandler handler) {
+        this.interruptHandler = handler;
     }
 }
