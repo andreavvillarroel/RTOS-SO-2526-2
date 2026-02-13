@@ -30,6 +30,8 @@ public class Process {
     private int remainingIoTime;    // Cuenta regresiva del bloqueo
     private boolean hasDoneIO;    // Para que no se bloquee infinitas veces
     private int quantumConsumido; // Ciclos consumidos del quantum actual (para RR)
+    private int effectivePriority; // Prioridad efectiva (puede cambiar con Aging)
+    private int waitCycles;        // Ciclos que lleva esperando en cola (para Aging)
     
     public Process(String id, String name, int totalInstructions, int priority, int deadline, int ioInstruction, int ioDuration) {
         this.id = id;
@@ -47,6 +49,8 @@ public class Process {
         this.remainingIoTime = 0;
         this.hasDoneIO = false;
         this.quantumConsumido = 0;
+        this.effectivePriority = priority; // Comienza igual a la prioridad base
+        this.waitCycles = 0;
     }
 
     /**
@@ -101,5 +105,28 @@ public class Process {
     public void setQuantumConsumido(int q)          { this.quantumConsumido = q; }
     public void incrementQuantumConsumido()         { this.quantumConsumido++; }
     public void resetQuantumConsumido()             { this.quantumConsumido = 0; }
+    
+    // --- Getters y métodos para Planificador de Prioridad con Aging ---
+    public int getEffectivePriority()               { return effectivePriority; }
+    public void setEffectivePriority(int p)         { this.effectivePriority = p; }
+    public int getWaitCycles()                      { return waitCycles; }
+    public void incrementWaitCycles()               { this.waitCycles++; }
+    public void resetWaitCycles()                   { this.waitCycles = 0; }
+
+    /**
+     * Aplica Aging: reduce la prioridad efectiva (la sube en importancia).
+     * No puede bajar de 0 (la máxima prioridad).
+     */
+    public void applyAging(int boost) {
+        this.effectivePriority = Math.max(0, this.effectivePriority - boost);
+    }
+
+    /**
+     * Restaura la prioridad efectiva a la prioridad base original.
+     * Se llama cuando el proceso entra a CPU o se necesita resetear.
+     */
+    public void resetEffectivePriority() {
+        this.effectivePriority = this.priority;
+    }
 }
     

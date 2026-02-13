@@ -6,6 +6,7 @@ import modelos.Memory;
 import java.util.concurrent.Semaphore;
 import algoritmos.PlanificadorEDF;
 import algoritmos.PlanificadorRR;
+import algoritmos.PlanificadorPrioridad;
 
 public class Kernel {
     private Memory memory;
@@ -13,6 +14,7 @@ public class Kernel {
     private Semaphore mutex;
     private PlanificadorEDF schedulerEDF;
     private PlanificadorRR schedulerRR;
+    private PlanificadorPrioridad schedulerPrio;
     private String activeAlgorithm;
 
     public Kernel() {
@@ -21,6 +23,7 @@ public class Kernel {
         this.mutex = new Semaphore(1);
         this.schedulerEDF = new PlanificadorEDF();
         this.schedulerRR = new PlanificadorRR(3);
+        this.schedulerPrio = new PlanificadorPrioridad();
         this.activeAlgorithm = "EDF"; // Algoritmo por defecto
     }
 
@@ -83,6 +86,8 @@ public class Kernel {
                    // Reintegrar vía el algoritmo activo
                     if ("RR".equals(activeAlgorithm)) {
                         schedulerRR.reinsertFromBlocked(p, memory.getReadyQueue());
+                        } else if ("PRIO".equals(activeAlgorithm)) {
+                        schedulerPrio.reinsertFromBlocked(p, memory.getReadyQueue());
                     } else {
                         schedulerEDF.reinsertFromBlocked(p, memory.getReadyQueue());
                     }
@@ -199,6 +204,9 @@ public class Kernel {
         if ("RR".equals(activeAlgorithm)) {
             schedulerRR.printContextLog();
             schedulerRR.printFailureReport();
+        }else if ("PRIO".equals(activeAlgorithm)) {
+            schedulerPrio.printContextLog();
+            schedulerPrio.printFailureReport();
         } else {
             schedulerEDF.printContextLog();
             schedulerEDF.printFailureReport();
@@ -298,6 +306,8 @@ public class Kernel {
     public void executeCycle(int currentCycle) {
         if ("RR".equals(activeAlgorithm)) {
             executeRrCycle(currentCycle);
+        } else if ("PRIO".equals(activeAlgorithm)) {
+            executePriorityCycle(currentCycle);
         } else {
             executeEdfCycle(currentCycle);
         }
@@ -319,5 +329,82 @@ public class Kernel {
 
     public int getQuantum() { return schedulerRR.getQuantum(); }
     public PlanificadorRR getSchedulerRR() { return schedulerRR; }
+    public PlanificadorPrioridad getSchedulerPrio() { return schedulerPrio; }
+
+    // --- Ciclo principal de planificación por Prioridad ---
+    public void executePriorityCycle(int currentCycle) {
+        try {
+            mutex.acquire();
+
+            // Swap-In
+            performSwapIn();
+
+            // Actualizar deadlines de procesos en espera
+            updateReadyDeadlines();
+
+            // Consultar al planificador de Prioridad
+            Process runningProcess = cpu.getCurrentProcess();
+            PlanificadorPrioridad.SchedulingResult result = schedulerPrio.schedule(
+                    memory.getReadyQueue(), runningProcess, currentCycle);
+
+            // Ejecutar la decisión
+            switch (result.getAction()) {
+                case ASSIGN_NEW -> {
+                    cpu.setProcess(result.getAssignedProcess());
+                    System.out.println("[Ciclo " + currentCycle + "] PRIO: Asignando "
+                            + result.getAssignedProcess().getName()
+                            + " a CPU (prioridad="
+                            + result.getAssignedProcess().getEffectivePriority() + ")");
+                }
+                case PREEMPT_PRIORITY -> {
+                    cpu.setProcess(result.getAssignedProcess());
+                    System.out.println("[Ciclo " + currentCycle + "] PRIO: "
+                            + result.getAssignedProcess().getName() + " toma la CPU");
+                }
+                case MISSION_FAIL_CPU -> {
+                    cpu.release();
+                    System.out.println("[Ciclo " + currentCycle + "] PRIO: CPU liberada por fallo de misión");
+                    if (!memory.getReadyQueue().isEmpty()) {
+                        Process next = memory.getReadyQueue().dequeue();
+                        next.setStatus("Ejecución");
+                        next.resetWaitCycles();
+                        cpu.setProcess(next);
+                        System.out.println("[Ciclo " + currentCycle + "] PRIO: Asignando "
+                                + next.getName() + " tras fallo");
+                    }
+                }
+                case NO_CHANGE -> { /* El proceso actual sigue */ }
+                case CPU_IDLE -> {
+                    System.out.println("[Ciclo " + currentCycle + "] CPU Ociosa...");
+                }
+            }
+
+            // Ejecutar instrucción si hay proceso en CPU
+            Process inCpu = cpu.getCurrentProcess();
+            if (inCpu != null) {
+                if (inCpu.shouldBlock()) {
+                    inCpu.startIO();
+                    memory.getBlockedQueue().enqueue(inCpu);
+                    cpu.release();
+                    System.out.println("[Ciclo " + currentCycle + "] "
+                            + inCpu.getName() + " bloqueado (E/S)");
+                } else if (!inCpu.isFinished()) {
+                    inCpu.executeInstruction();
+                    inCpu.updateDeadline();
+                    System.out.println("[Ciclo " + currentCycle + "] "
+                            + inCpu.getName() + " en CPU (PC=" + inCpu.getPc()
+                            + ", prio=" + inCpu.getEffectivePriority()
+                            + ", deadline=" + inCpu.getRemainingDeadline() + ")");
+                } else {
+                    System.out.println("[Ciclo " + currentCycle + "] "
+                            + inCpu.getName() + " TERMINADO.");
+                    inCpu.setStatus("Terminado");
+                    cpu.release();
+                }
+            }
+
+            mutex.release();
+        } catch (InterruptedException e) { e.printStackTrace(); }
+    }
       
 }
