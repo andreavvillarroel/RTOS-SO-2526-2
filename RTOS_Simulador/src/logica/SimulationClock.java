@@ -51,8 +51,8 @@ public class SimulationClock extends Thread {
                 totalCycles++;
                 kernel.updateBlockedProcesses();
                 
-                // Delegamos toda la lógica al planificador EDF del Kernel
-                kernel.executeEdfCycle(totalCycles);
+                // Delegamos toda la lógica al planificador activo del Kernel
+                kernel.executeCycle(totalCycles);
                 
                 // Condición de parada: todos los procesos terminaron o fallaron
                 if (kernel.isSimulationComplete()) {

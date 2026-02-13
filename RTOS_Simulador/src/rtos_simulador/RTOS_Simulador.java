@@ -47,9 +47,10 @@ public class RTOS_Simulador {
 
         // 3. Encendemos los 
         clock.setInterruptHandler(interrupts); // Para detener interrupciones al finalizar
+        kernel.setAlgorithm("RR");
+        kernel.setQuantum(3);
         clock.start();
         interrupts.start();
     }
 
-    
 }

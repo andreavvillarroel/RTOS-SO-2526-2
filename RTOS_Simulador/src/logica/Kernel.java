@@ -5,24 +5,23 @@ import modelos.CPU;
 import modelos.Memory;
 import java.util.concurrent.Semaphore;
 import algoritmos.PlanificadorEDF;
-import static algoritmos.PlanificadorEDF.Action.ASSIGN_NEW;
-import static algoritmos.PlanificadorEDF.Action.CPU_IDLE;
-import static algoritmos.PlanificadorEDF.Action.MISSION_FAIL_CPU;
-import static algoritmos.PlanificadorEDF.Action.NO_CHANGE;
-import static algoritmos.PlanificadorEDF.Action.PREEMPT;
-import algoritmos.PlanificadorEDF.SchedulingResult;
+import algoritmos.PlanificadorRR;
 
 public class Kernel {
     private Memory memory;
     private CPU cpu;
     private Semaphore mutex;
-    private PlanificadorEDF scheduler;
+    private PlanificadorEDF schedulerEDF;
+    private PlanificadorRR schedulerRR;
+    private String activeAlgorithm;
 
     public Kernel() {
         this.memory = new Memory(5); // Iniciamos RAM con límite de 5
         this.cpu = new CPU();
         this.mutex = new Semaphore(1);
-        this.scheduler = new PlanificadorEDF();
+        this.schedulerEDF = new PlanificadorEDF();
+        this.schedulerRR = new PlanificadorRR(3);
+        this.activeAlgorithm = "EDF"; // Algoritmo por defecto
     }
 
     // --- Gestión de Memoria y Procesos ---
@@ -81,16 +80,19 @@ public class Kernel {
                 Process p = memory.getBlockedQueue().dequeue();
                 p.tickIO();
                 if (p.isIoFinished()) {
-                   // Reintegrar vía EDF para que se evalúe preempción
-                    scheduler.reinsertFromBlocked(p, memory.getReadyQueue());
-                } else {
+                   // Reintegrar vía el algoritmo activo
+                    if ("RR".equals(activeAlgorithm)) {
+                        schedulerRR.reinsertFromBlocked(p, memory.getReadyQueue());
+                    } else {
+                        schedulerEDF.reinsertFromBlocked(p, memory.getReadyQueue());
+                    }
                     memory.getBlockedQueue().enqueue(p);
                 }
             }
             mutex.release();
         } catch (InterruptedException e) { e.printStackTrace(); }
     }
-    
+    // --- Ciclo principal de planificación EDF ---
     /**
      * Se invoca desde el SimulationClock en cada ciclo de reloj.
      * Delega la decisión al PlanificadorEDF y ejecuta la acción resultante.
@@ -107,7 +109,7 @@ public class Kernel {
 
             // Consultar al planificador EDF
             Process runningProcess = cpu.getCurrentProcess();
-            SchedulingResult result = scheduler.schedule(
+            PlanificadorEDF.SchedulingResult result = schedulerEDF.schedule(
                     memory.getReadyQueue(), runningProcess, currentCycle);
 
             // Ejecutar la decisión
@@ -169,11 +171,7 @@ public class Kernel {
     // Getters para que el Reloj y la GUI accedan a las piezas
     public CPU getCpu() { return cpu; }
     public Memory getMemory() { return memory; }
-    public PlanificadorEDF getScheduler() { return scheduler; }
-
-    // --- Ciclo principal de planificación EDF ---
-
-    
+    public PlanificadorEDF getSchedulerEDF() { return schedulerEDF; }
 
     // --- Swap-In ---
     private void performSwapIn() {
@@ -197,8 +195,14 @@ public class Kernel {
 
     // --- Reportes de misión ---
     public void printMissionReports() {
-        scheduler.printContextLog();
-        scheduler.printFailureReport();
+        System.out.println("\n[KERNEL] Algoritmo utilizado: " + activeAlgorithm);
+        if ("RR".equals(activeAlgorithm)) {
+            schedulerRR.printContextLog();
+            schedulerRR.printFailureReport();
+        } else {
+            schedulerEDF.printContextLog();
+            schedulerEDF.printFailureReport();
+        }
     }
     
     // --- Condición de parada: no quedan procesos vivos ---
@@ -209,5 +213,111 @@ public class Kernel {
             && memory.getSuspendedReadyQueue().isEmpty()
             && memory.getSuspendedBlockedQueue().isEmpty();
     }
+    
+    // --- Ciclo principal de planificación Round Robin ---
+    
+    public void executeRrCycle(int currentCycle) {
+        try {
+            mutex.acquire();
+
+            // Swap-In
+            performSwapIn();
+
+            // Actualizar deadlines de procesos en espera
+            updateReadyDeadlines();
+
+            // Consultar al planificador RR
+            Process runningProcess = cpu.getCurrentProcess();
+            PlanificadorRR.SchedulingResult result = schedulerRR.schedule(
+                    memory.getReadyQueue(), runningProcess, currentCycle);
+
+            // Ejecutar la decisión
+            switch (result.getAction()) {
+                case ASSIGN_NEW -> {
+                    cpu.setProcess(result.getAssignedProcess());
+                    System.out.println("[Ciclo " + currentCycle + "] RR: Asignando "
+                            + result.getAssignedProcess().getName() + " a CPU (quantum="
+                            + schedulerRR.getQuantum() + ")");
+                }
+                case QUANTUM_EXPIRED -> {
+                    cpu.setProcess(result.getAssignedProcess());
+                    System.out.println("[Ciclo " + currentCycle + "] RR: "
+                            + result.getAssignedProcess().getName() + " toma la CPU");
+                }
+                case MISSION_FAIL_CPU -> {
+                    cpu.release();
+                    System.out.println("[Ciclo " + currentCycle + "] RR: CPU liberada por fallo de misión");
+                    if (!memory.getReadyQueue().isEmpty()) {
+                        Process next = memory.getReadyQueue().dequeue();
+                        next.setStatus("Ejecución");
+                        cpu.setProcess(next);
+                        schedulerRR.resetQuantum();
+                        System.out.println("[Ciclo " + currentCycle + "] RR: Asignando "
+                                + next.getName() + " tras fallo");
+                    }
+                }
+                case NO_CHANGE -> { /* El proceso actual sigue */ }
+                case CPU_IDLE -> {
+                    System.out.println("[Ciclo " + currentCycle + "] CPU Ociosa...");
+                }
+            }
+
+            // Ejecutar instrucción si hay proceso en CPU
+            Process inCpu = cpu.getCurrentProcess();
+            if (inCpu != null) {
+                if (inCpu.shouldBlock()) {
+                    inCpu.startIO();
+                    memory.getBlockedQueue().enqueue(inCpu);
+                    cpu.release();
+                    schedulerRR.resetQuantum();
+                    System.out.println("[Ciclo " + currentCycle + "] "
+                            + inCpu.getName() + " bloqueado (E/S)");
+                } else if (!inCpu.isFinished()) {
+                    inCpu.executeInstruction();
+                    inCpu.updateDeadline();
+                    schedulerRR.tickQuantum();
+                    System.out.println("[Ciclo " + currentCycle + "] "
+                            + inCpu.getName() + " en CPU (PC=" + inCpu.getPc()
+                            + ", quantum=" + schedulerRR.getQuantumCounter()
+                            + "/" + schedulerRR.getQuantum()
+                            + ", deadline=" + inCpu.getRemainingDeadline() + ")");
+                } else {
+                    System.out.println("[Ciclo " + currentCycle + "] "
+                            + inCpu.getName() + " TERMINADO.");
+                    inCpu.setStatus("Terminado");
+                    cpu.release();
+                    schedulerRR.resetQuantum();
+                }
+            }
+
+            mutex.release();
+        } catch (InterruptedException e) { e.printStackTrace(); }
+    }
+
+    // --- Ciclo genérico: delega al algoritmo activo ---
+    public void executeCycle(int currentCycle) {
+        if ("RR".equals(activeAlgorithm)) {
+            executeRrCycle(currentCycle);
+        } else {
+            executeEdfCycle(currentCycle);
+        }
+    }
+
+    // --- Cambio dinámico de algoritmo (patrón Strategy) ---
+    public void setAlgorithm(String algorithm) {
+        this.activeAlgorithm = algorithm;
+        System.out.println("[KERNEL] Algoritmo cambiado a: " + algorithm);
+    }
+
+    public String getActiveAlgorithm() { return activeAlgorithm; }
+
+    // --- Quantum dinámico (para GUI) ---
+    public void setQuantum(int q) {
+        schedulerRR.setQuantum(q);
+        System.out.println("[KERNEL] Quantum actualizado a: " + q + " ciclos");
+    }
+
+    public int getQuantum() { return schedulerRR.getQuantum(); }
+    public PlanificadorRR getSchedulerRR() { return schedulerRR; }
       
 }

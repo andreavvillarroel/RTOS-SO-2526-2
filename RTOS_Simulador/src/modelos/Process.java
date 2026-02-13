@@ -29,7 +29,8 @@ public class Process {
     private int ioDuration;         // Cuántos ciclos se queda bloqueado
     private int remainingIoTime;    // Cuenta regresiva del bloqueo
     private boolean hasDoneIO;    // Para que no se bloquee infinitas veces
-
+    private int quantumConsumido; // Ciclos consumidos del quantum actual (para RR)
+    
     public Process(String id, String name, int totalInstructions, int priority, int deadline, int ioInstruction, int ioDuration) {
         this.id = id;
         this.name = name;
@@ -45,6 +46,7 @@ public class Process {
         this.ioDuration = ioDuration;
         this.remainingIoTime = 0;
         this.hasDoneIO = false;
+        this.quantumConsumido = 0;
     }
 
     /**
@@ -93,5 +95,11 @@ public class Process {
         this.pc = pc;
         this.mar = mar;
     }
+    
+     // --- Getters agregados para el Planificador Round Robin ---
+    public int getQuantumConsumido()                { return quantumConsumido; }
+    public void setQuantumConsumido(int q)          { this.quantumConsumido = q; }
+    public void incrementQuantumConsumido()         { this.quantumConsumido++; }
+    public void resetQuantumConsumido()             { this.quantumConsumido = 0; }
 }
     
