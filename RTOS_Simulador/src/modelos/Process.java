@@ -128,5 +128,10 @@ public class Process {
     public void resetEffectivePriority() {
         this.effectivePriority = this.priority;
     }
+    
+    // --- Getters agregados para el Planificador SRT ---
+    public int getRemainingInstructions() { return totalInstructions - executedInstructions; }
+    public int getTotalInstructions()     { return totalInstructions; }
+    public int getExecutedInstructions()  { return executedInstructions; }
 }
     
