@@ -12,7 +12,7 @@ import modelos.Process;
  *
  * @author Francisco
  */
-public class PlanificadorEDF {
+public class PlanificadorEDF implements IPlanificador {
 
     // --- Constantes de estado ---
     public static final String READY          = "Listo";
@@ -235,4 +235,37 @@ public class PlanificadorEDF {
     // --- Getters ---
     public ListaDobleEnlazada<SavedContext> getContextLog() { return contextLog; }
     public ListaDobleEnlazada<Process> getFailedProcesses() { return failedProcesses; }
+    
+    // --- IPlanificador: campos temporales para comunicación con Kernel ---
+    private Process procesoAsignado;
+    private Process procesoExpulsado;
+
+    @Override
+    public String decide(MyQueue<Process> readyQueue, Process runningProcess, int currentCycle) {
+        SchedulingResult result = schedule(readyQueue, runningProcess, currentCycle);
+        this.procesoAsignado = result.getAssignedProcess();
+        this.procesoExpulsado = result.getPreemptedProcess();
+        return switch (result.getAction()) {
+            case ASSIGN_NEW -> "ASSIGN_NEW";
+            case PREEMPT -> "PREEMPT";
+            case NO_CHANGE -> "NO_CHANGE";
+            case CPU_IDLE -> "CPU_IDLE";
+            case MISSION_FAIL_CPU -> "MISSION_FAIL_CPU";
+        };
+    }
+
+    @Override public Process getAssignedProcess()  { return procesoAsignado; }
+    @Override public Process getPreemptedProcess()  { return procesoExpulsado; }
+    @Override public String getName()             { return "EDF"; }
+
+    @Override
+    public String getExtraInfo(Process p) {
+        return "deadline=" + p.getRemainingDeadline();
+    }
+
+    @Override public void postExecution(Process p)     { /* No aplica para EDF */ }
+    @Override public void onProcessLeavesCpu(Process p)   { /* No aplica para EDF */ }
+    @Override public int getTotalFailures()                { return failedProcesses.getSize(); }
+    @Override public int getTotalContextSwitches()       { return contextLog.getSize(); }
+
 }
