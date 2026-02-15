@@ -15,9 +15,11 @@ public class SimulationClock extends Thread {
     private int cycleDurationMs; // Duración de cada ciclo en milisegundos
     private int totalCycles;      // Contador global de ciclos
     private boolean running;      // Control del hilo
+    private boolean paused;       // Control de pausa
     private boolean interrupted = false;
     private Kernel kernel; 
     private InterruptHandler interruptHandler; // Referencia para detenerlo al finalizar
+    private Runnable onCycleListener; // Listener para la GUI
     
     // Proceso que está actualmente en CPU 
     private Process currentProcess;
@@ -48,11 +50,22 @@ public class SimulationClock extends Thread {
                 }
 
                 Thread.sleep(cycleDurationMs);
+                // Verificar pausa
+                while (paused && running) {
+                    Thread.sleep(100);
+                }
+                if (!running) break;
+                
                 totalCycles++;
                 kernel.updateBlockedProcesses();
                 
                 // Delegamos toda la lógica al planificador activo del Kernel
                 kernel.executeCycle(totalCycles);
+                
+                 // Notificar a la GUI
+                if (onCycleListener != null) {
+                    onCycleListener.run();
+                }
                 
                 // Condición de parada: todos los procesos terminaron o fallaron
                 if (kernel.isSimulationComplete()) {
@@ -72,8 +85,17 @@ public class SimulationClock extends Thread {
 
     // Métodos de control
     public void stopSimulation() { this.running = false; }
+    public void pauseSimulation() { this.paused = true; }
+    public void resumeSimulation() { this.paused = false; }
+    public boolean isPaused() { return paused; }
+    public boolean isRunning() { return running; }
     public void setCycleDuration(int ms) { this.cycleDurationMs = ms; }
+    public int getCycleDurationMs() { return cycleDurationMs; }
     public int getTotalCycles() { return totalCycles; }
+    
+    public void setOnCycleListener(Runnable listener) {
+        this.onCycleListener = listener;
+    }
     
     public void setCurrentProcess(Process p) {
         this.currentProcess = p;

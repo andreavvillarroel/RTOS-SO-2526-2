@@ -56,6 +56,7 @@ public class Kernel {
     public void addProcess(Process p) {
         try {
             mutex.acquire();
+            totalProcesos++;
             if (memory.getRamUsage() < memory.getMaxRamProcesses()) {
                 p.setStatus("Listo");
                 memory.getReadyQueue().enqueue(p);
