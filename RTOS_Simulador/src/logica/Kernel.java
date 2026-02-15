@@ -115,191 +115,99 @@ public class Kernel {
             mutex.release();
         } catch (InterruptedException e) { e.printStackTrace(); }
     }
-    // --- Ciclo principal de planificación EDF ---
+    // --- Ciclo principal de planificación unificado ---
     /**
      * Se invoca desde el SimulationClock en cada ciclo de reloj.
-     * Delega la decisión al PlanificadorEDF y ejecuta la acción resultante.
+     * Delega la decisión al Planificador y ejecuta la acción resultante.
      */
-    public void executeEdfCycle(int currentCycle) {
+    public void executeCycle(int currentCycle) {
         try {
             mutex.acquire();
 
-            // Swap-In: mover de SWAP a RAM si hay espacio
+            // 1. Swap-In
             performSwapIn();
 
-            // Actualizar deadlines de procesos en espera
+            // 2. Actualizar deadlines
             updateReadyDeadlines();
 
-            // Consultar al planificador EDF
+            // 3. Consultar al planificador activo
             Process runningProcess = cpu.getCurrentProcess();
-            PlanificadorEDF.SchedulingResult result = schedulerEDF.schedule(
+            String action = planificadorActual.decide(
                     memory.getReadyQueue(), runningProcess, currentCycle);
 
-            // Ejecutar la decisión
-            switch (result.getAction()) {
-                case ASSIGN_NEW -> {
-                    cpu.setProcess(result.getAssignedProcess());
-                    System.out.println("[Ciclo " + currentCycle + "] EDF: Asignando "
-                            + result.getAssignedProcess().getName() + " a CPU");
+            String tag = planificadorActual.getName();
+
+            // 4. Ejecutar la decisión
+            switch (action) {
+                case "ASSIGN_NEW" -> {
+                    Process assigned = planificadorActual.getAssignedProcess();
+                    cpu.setProcess(assigned);
+                    System.out.println("[Ciclo " + currentCycle + "] " + tag
+                            + ": Asignando " + assigned.getName()
+                            + " a CPU (" + planificadorActual.getExtraInfo(assigned) + ")");
                 }
-                case PREEMPT -> {
-                    cpu.setProcess(result.getAssignedProcess());
-                    System.out.println("[Ciclo " + currentCycle + "] EDF: "
-                            + result.getAssignedProcess().getName() + " toma la CPU");
+                case "PREEMPT" -> {
+                    Process assigned = planificadorActual.getAssignedProcess();
+                    cpu.setProcess(assigned);
+                    System.out.println("[Ciclo " + currentCycle + "] " + tag
+                            + ": " + assigned.getName() + " toma la CPU");
                 }
-                case MISSION_FAIL_CPU -> {
+                case "MISSION_FAIL_CPU" -> {
                     cpu.release();
-                    System.out.println("[Ciclo " + currentCycle + "] EDF: CPU liberada por fallo de misión");
+                    procesosFallidos++;
+                    logEvent(currentCycle, "Fallo de misión detectado en CPU");
+                    System.out.println("[Ciclo " + currentCycle + "] " + tag
+                            + ": CPU liberada por fallo de misión");
+
                     if (!memory.getReadyQueue().isEmpty()) {
-                        Process next = memory.getReadyQueue().dequeue();
-                        next.setStatus("Ejecución");
-                        cpu.setProcess(next);
-                        System.out.println("[Ciclo " + currentCycle + "] EDF: Asignando "
-                                + next.getName() + " tras fallo");
+                        String nextAction = planificadorActual.decide(
+                                memory.getReadyQueue(), null, currentCycle);
+                        if ("ASSIGN_NEW".equals(nextAction)) {
+                            Process next = planificadorActual.getAssignedProcess();
+                            cpu.setProcess(next);
+                            System.out.println("[Ciclo " + currentCycle + "] " + tag
+                                    + ": Asignando " + next.getName() + " tras fallo");
+                        }
                     }
                 }
-                case NO_CHANGE -> { /* El proceso actual sigue */ }
-                case CPU_IDLE -> {
+                case "NO_CHANGE" -> { /* El proceso actual sigue */ }
+                case "CPU_IDLE" -> {
                     System.out.println("[Ciclo " + currentCycle + "] CPU Ociosa...");
                 }
             }
 
-            // Ejecutar instrucción si hay proceso en CPU
+            // 5. Ejecutar instrucción si hay proceso en CPU
             Process inCpu = cpu.getCurrentProcess();
             if (inCpu != null) {
                 if (inCpu.shouldBlock()) {
                     inCpu.startIO();
                     memory.getBlockedQueue().enqueue(inCpu);
                     cpu.release();
+                    planificadorActual.onProcessLeavesCpu(inCpu);
                     System.out.println("[Ciclo " + currentCycle + "] "
                             + inCpu.getName() + " bloqueado (E/S)");
                 } else if (!inCpu.isFinished()) {
                     inCpu.executeInstruction();
                     inCpu.updateDeadline();
+                    planificadorActual.postExecution(inCpu);
                     System.out.println("[Ciclo " + currentCycle + "] "
                             + inCpu.getName() + " en CPU (PC=" + inCpu.getPc()
+                            + ", " + planificadorActual.getExtraInfo(inCpu)
                             + ", deadline=" + inCpu.getRemainingDeadline() + ")");
                 } else {
                     System.out.println("[Ciclo " + currentCycle + "] "
                             + inCpu.getName() + " TERMINADO.");
                     inCpu.setStatus("Terminado");
                     cpu.release();
+                    planificadorActual.onProcessLeavesCpu(inCpu);
+                    procesosTerminados++;
                 }
             }
 
             mutex.release();
         } catch (InterruptedException e) { e.printStackTrace(); }
     }
-
-    // --- Swap-In ---
-    private void performSwapIn() {
-        while (memory.getRamUsage() < memory.getMaxRamProcesses()
-                && !memory.getSuspendedReadyQueue().isEmpty()) {
-            Process fromSwap = memory.getSuspendedReadyQueue().dequeue();
-            fromSwap.setStatus("Listo");
-            memory.getReadyQueue().enqueue(fromSwap);
-            System.out.println("[KERNEL] Swap-In: " + fromSwap.getName() + " movido a RAM");
-        }
-    }
-
-    // --- Actualizar deadlines de procesos en espera ---
-    private void updateReadyDeadlines() {
-        var list = memory.getReadyQueue().getList();
-        for (int i = 0; i < list.getSize(); i++) {
-            Process p = list.get(i);
-            if (p != null) p.updateDeadline();
-        }
-    }
     
-    // --- Condición de parada: no quedan procesos vivos ---
-    public boolean isSimulationComplete() {
-        return cpu.getCurrentProcess() == null
-            && memory.getReadyQueue().isEmpty()
-            && memory.getBlockedQueue().isEmpty()
-            && memory.getSuspendedReadyQueue().isEmpty()
-            && memory.getSuspendedBlockedQueue().isEmpty();
-    }
-    
-    // --- Ciclo principal de planificación Round Robin ---
-    
-    public void executeRrCycle(int currentCycle) {
-        try {
-            mutex.acquire();
-
-            // Swap-In
-            performSwapIn();
-
-            // Actualizar deadlines de procesos en espera
-            updateReadyDeadlines();
-
-            // Consultar al planificador RR
-            Process runningProcess = cpu.getCurrentProcess();
-            PlanificadorRR.SchedulingResult result = schedulerRR.schedule(
-                    memory.getReadyQueue(), runningProcess, currentCycle);
-
-            // Ejecutar la decisión
-            switch (result.getAction()) {
-                case ASSIGN_NEW -> {
-                    cpu.setProcess(result.getAssignedProcess());
-                    System.out.println("[Ciclo " + currentCycle + "] RR: Asignando "
-                            + result.getAssignedProcess().getName() + " a CPU (quantum="
-                            + schedulerRR.getQuantum() + ")");
-                }
-                case QUANTUM_EXPIRED -> {
-                    cpu.setProcess(result.getAssignedProcess());
-                    System.out.println("[Ciclo " + currentCycle + "] RR: "
-                            + result.getAssignedProcess().getName() + " toma la CPU");
-                }
-                case MISSION_FAIL_CPU -> {
-                    cpu.release();
-                    System.out.println("[Ciclo " + currentCycle + "] RR: CPU liberada por fallo de misión");
-                    if (!memory.getReadyQueue().isEmpty()) {
-                        Process next = memory.getReadyQueue().dequeue();
-                        next.setStatus("Ejecución");
-                        cpu.setProcess(next);
-                        schedulerRR.resetQuantum();
-                        System.out.println("[Ciclo " + currentCycle + "] RR: Asignando "
-                                + next.getName() + " tras fallo");
-                    }
-                }
-                case NO_CHANGE -> { /* El proceso actual sigue */ }
-                case CPU_IDLE -> {
-                    System.out.println("[Ciclo " + currentCycle + "] CPU Ociosa...");
-                }
-            }
-
-            // Ejecutar instrucción si hay proceso en CPU
-            Process inCpu = cpu.getCurrentProcess();
-            if (inCpu != null) {
-                if (inCpu.shouldBlock()) {
-                    inCpu.startIO();
-                    memory.getBlockedQueue().enqueue(inCpu);
-                    cpu.release();
-                    schedulerRR.resetQuantum();
-                    System.out.println("[Ciclo " + currentCycle + "] "
-                            + inCpu.getName() + " bloqueado (E/S)");
-                } else if (!inCpu.isFinished()) {
-                    inCpu.executeInstruction();
-                    inCpu.updateDeadline();
-                    schedulerRR.tickQuantum();
-                    System.out.println("[Ciclo " + currentCycle + "] "
-                            + inCpu.getName() + " en CPU (PC=" + inCpu.getPc()
-                            + ", quantum=" + schedulerRR.getQuantumCounter()
-                            + "/" + schedulerRR.getQuantum()
-                            + ", deadline=" + inCpu.getRemainingDeadline() + ")");
-                } else {
-                    System.out.println("[Ciclo " + currentCycle + "] "
-                            + inCpu.getName() + " TERMINADO.");
-                    inCpu.setStatus("Terminado");
-                    cpu.release();
-                    schedulerRR.resetQuantum();
-                }
-            }
-
-            mutex.release();
-        } catch (InterruptedException e) { e.printStackTrace(); }
-    }
-
     // --- Cambio dinámico de algoritmo ---
     public void setAlgoritmo(TipoAlgoritmo tipo) {
         try {
@@ -331,163 +239,36 @@ public class Kernel {
             default -> setAlgoritmo(TipoAlgoritmo.EDF);
         }
     }
-
-
+    
+    //---- CONFIGURACION ----
+    
     // --- Quantum dinámico (para GUI) ---
     public void setQuantum(int q) {
         schedulerRR.setQuantum(q);
         System.out.println("[KERNEL] Quantum actualizado a: " + q + " ciclos");
     }
-
-    // --- Ciclo principal de planificación por Prioridad ---
-    public void executePriorityCycle(int currentCycle) {
-        try {
-            mutex.acquire();
-
-            // Swap-In
-            performSwapIn();
-
-            // Actualizar deadlines de procesos en espera
-            updateReadyDeadlines();
-
-            // Consultar al planificador de Prioridad
-            Process runningProcess = cpu.getCurrentProcess();
-            PlanificadorPrioridad.SchedulingResult result = schedulerPrio.schedule(
-                    memory.getReadyQueue(), runningProcess, currentCycle);
-
-            // Ejecutar la decisión
-            switch (result.getAction()) {
-                case ASSIGN_NEW -> {
-                    cpu.setProcess(result.getAssignedProcess());
-                    System.out.println("[Ciclo " + currentCycle + "] PRIO: Asignando "
-                            + result.getAssignedProcess().getName()
-                            + " a CPU (prioridad="
-                            + result.getAssignedProcess().getEffectivePriority() + ")");
-                }
-                case PREEMPT_PRIORITY -> {
-                    cpu.setProcess(result.getAssignedProcess());
-                    System.out.println("[Ciclo " + currentCycle + "] PRIO: "
-                            + result.getAssignedProcess().getName() + " toma la CPU");
-                }
-                case MISSION_FAIL_CPU -> {
-                    cpu.release();
-                    System.out.println("[Ciclo " + currentCycle + "] PRIO: CPU liberada por fallo de misión");
-                    if (!memory.getReadyQueue().isEmpty()) {
-                        Process next = memory.getReadyQueue().dequeue();
-                        next.setStatus("Ejecución");
-                        next.resetWaitCycles();
-                        cpu.setProcess(next);
-                        System.out.println("[Ciclo " + currentCycle + "] PRIO: Asignando "
-                                + next.getName() + " tras fallo");
-                    }
-                }
-                case NO_CHANGE -> { /* El proceso actual sigue */ }
-                case CPU_IDLE -> {
-                    System.out.println("[Ciclo " + currentCycle + "] CPU Ociosa...");
-                }
-            }
-
-            // Ejecutar instrucción si hay proceso en CPU
-            Process inCpu = cpu.getCurrentProcess();
-            if (inCpu != null) {
-                if (inCpu.shouldBlock()) {
-                    inCpu.startIO();
-                    memory.getBlockedQueue().enqueue(inCpu);
-                    cpu.release();
-                    System.out.println("[Ciclo " + currentCycle + "] "
-                            + inCpu.getName() + " bloqueado (E/S)");
-                } else if (!inCpu.isFinished()) {
-                    inCpu.executeInstruction();
-                    inCpu.updateDeadline();
-                    System.out.println("[Ciclo " + currentCycle + "] "
-                            + inCpu.getName() + " en CPU (PC=" + inCpu.getPc()
-                            + ", prio=" + inCpu.getEffectivePriority()
-                            + ", deadline=" + inCpu.getRemainingDeadline() + ")");
-                } else {
-                    System.out.println("[Ciclo " + currentCycle + "] "
-                            + inCpu.getName() + " TERMINADO.");
-                    inCpu.setStatus("Terminado");
-                    cpu.release();
-                }
-            }
-
-            mutex.release();
-        } catch (InterruptedException e) { e.printStackTrace(); }
-    }
     
-    // --- Ciclo principal de planificación SRT ---
-    public void executeSrtCycle(int currentCycle) {
-        try {
-            mutex.acquire();
+    public void setAgingEnabled(boolean enabled) { schedulerPrio.setAgingEnabled(enabled); }
+    public void setAgingThreshold(int t)         { schedulerPrio.setAgingThreshold(t); }
 
-            // Swap-In
-            performSwapIn();
+    // --- Swap-In ---
+    private void performSwapIn() {
+        while (memory.getRamUsage() < memory.getMaxRamProcesses()
+                && !memory.getSuspendedReadyQueue().isEmpty()) {
+            Process fromSwap = memory.getSuspendedReadyQueue().dequeue();
+            fromSwap.setStatus("Listo");
+            memory.getReadyQueue().enqueue(fromSwap);
+            System.out.println("[KERNEL] Swap-In: " + fromSwap.getName() + " movido a RAM");
+        }
+    }
 
-            // Actualizar deadlines de procesos en espera
-            updateReadyDeadlines();
-
-            // Consultar al planificador SRT
-            Process runningProcess = cpu.getCurrentProcess();
-            PlanificadorSRT.SchedulingResult result = schedulerSRT.schedule(
-                    memory.getReadyQueue(), runningProcess, currentCycle);
-
-            // Ejecutar la decisión
-            switch (result.getAction()) {
-                case ASSIGN_NEW -> {
-                    cpu.setProcess(result.getAssignedProcess());
-                    System.out.println("[Ciclo " + currentCycle + "] SRT: Asignando "
-                            + result.getAssignedProcess().getName()
-                            + " a CPU (restantes="
-                            + result.getAssignedProcess().getRemainingInstructions() + ")");
-                }
-                case PREEMPT_SRT -> {
-                    cpu.setProcess(result.getAssignedProcess());
-                    System.out.println("[Ciclo " + currentCycle + "] SRT: "
-                            + result.getAssignedProcess().getName() + " toma la CPU");
-                }
-                case MISSION_FAIL_CPU -> {
-                    cpu.release();
-                    System.out.println("[Ciclo " + currentCycle + "] SRT: CPU liberada por fallo de misión");
-                    if (!memory.getReadyQueue().isEmpty()) {
-                        Process next = memory.getReadyQueue().dequeue();
-                        next.setStatus("Ejecución");
-                        cpu.setProcess(next);
-                        System.out.println("[Ciclo " + currentCycle + "] SRT: Asignando "
-                                + next.getName() + " tras fallo");
-                    }
-                }
-                case NO_CHANGE -> { /* El proceso actual sigue */ }
-                case CPU_IDLE -> {
-                    System.out.println("[Ciclo " + currentCycle + "] CPU Ociosa...");
-                }
-            }
-
-            // Ejecutar instrucción si hay proceso en CPU
-            Process inCpu = cpu.getCurrentProcess();
-            if (inCpu != null) {
-                if (inCpu.shouldBlock()) {
-                    inCpu.startIO();
-                    memory.getBlockedQueue().enqueue(inCpu);
-                    cpu.release();
-                    System.out.println("[Ciclo " + currentCycle + "] "
-                            + inCpu.getName() + " bloqueado (E/S)");
-                } else if (!inCpu.isFinished()) {
-                    inCpu.executeInstruction();
-                    inCpu.updateDeadline();
-                    System.out.println("[Ciclo " + currentCycle + "] "
-                            + inCpu.getName() + " en CPU (PC=" + inCpu.getPc()
-                            + ", restantes=" + inCpu.getRemainingInstructions()
-                            + ", deadline=" + inCpu.getRemainingDeadline() + ")");
-                } else {
-                    System.out.println("[Ciclo " + currentCycle + "] "
-                            + inCpu.getName() + " TERMINADO.");
-                    inCpu.setStatus("Terminado");
-                    cpu.release();
-                }
-            }
-
-            mutex.release();
-        } catch (InterruptedException e) { e.printStackTrace(); }
+    // --- Actualizar deadlines de procesos en espera ---
+    private void updateReadyDeadlines() {
+        var list = memory.getReadyQueue().getList();
+        for (int i = 0; i < list.getSize(); i++) {
+            Process p = list.get(i);
+            if (p != null) p.updateDeadline();
+        }
     }
     
     // --- Reportes de misión y metricas ---
@@ -520,6 +301,15 @@ public class Kernel {
                 System.out.println("  " + eventLog.get(i));
             }
         }
+    }
+    
+    // --- Condición de parada: no quedan procesos vivos ---
+    public boolean isSimulationComplete() {
+        return cpu.getCurrentProcess() == null
+            && memory.getReadyQueue().isEmpty()
+            && memory.getBlockedQueue().isEmpty()
+            && memory.getSuspendedReadyQueue().isEmpty()
+            && memory.getSuspendedBlockedQueue().isEmpty();
     }
     
     // Getters para que el Reloj y la GUI accedan a las piezas
