@@ -8,26 +8,47 @@ import algoritmos.PlanificadorEDF;
 import algoritmos.PlanificadorRR;
 import algoritmos.PlanificadorPrioridad;
 import algoritmos.PlanificadorSRT;
+import algoritmos.IPlanificador;
+import algoritmos.TipoAlgoritmo;
+import estructuras.ListaDobleEnlazada;
 
 public class Kernel {
+    
     private Memory memory;
     private CPU cpu;
     private Semaphore mutex;
+    
     private PlanificadorEDF schedulerEDF;
     private PlanificadorRR schedulerRR;
     private PlanificadorPrioridad schedulerPrio;
     private PlanificadorSRT schedulerSRT;
-    private String activeAlgorithm;
+
+    private IPlanificador planificadorActual;
+    private TipoAlgoritmo tipoActual;
+    
+    private int procesosTerminados;
+    private int procesosFallidos;
+    private int totalProcesos;
+    
+    private final ListaDobleEnlazada<String> eventLog;
 
     public Kernel() {
         this.memory = new Memory(5); // Iniciamos RAM con límite de 5
         this.cpu = new CPU();
         this.mutex = new Semaphore(1);
+        
         this.schedulerEDF = new PlanificadorEDF();
         this.schedulerRR = new PlanificadorRR(3);
         this.schedulerPrio = new PlanificadorPrioridad();
         this.schedulerSRT = new PlanificadorSRT();
-        this.activeAlgorithm = "EDF"; // Algoritmo por defecto
+        
+        this.tipoActual = TipoAlgoritmo.EDF;
+        this.planificadorActual = schedulerEDF;
+        
+        this.procesosTerminados = 0;
+        this.procesosFallidos = 0;
+        this.totalProcesos = 0;
+        this.eventLog = new ListaDobleEnlazada<>();
     }
 
     // --- Gestión de Memoria y Procesos ---
@@ -86,16 +107,8 @@ public class Kernel {
                 Process p = memory.getBlockedQueue().dequeue();
                 p.tickIO();
                 if (p.isIoFinished()) {
-                   // Reintegrar vía el algoritmo activo
-                    if ("RR".equals(activeAlgorithm)) {
-                        schedulerRR.reinsertFromBlocked(p, memory.getReadyQueue());
-                        } else if ("PRIO".equals(activeAlgorithm)) {
-                        schedulerPrio.reinsertFromBlocked(p, memory.getReadyQueue());
-                        } else if ("SRT".equals(activeAlgorithm)) {
-                        schedulerSRT.reinsertFromBlocked(p, memory.getReadyQueue());
-                    } else {
-                        schedulerEDF.reinsertFromBlocked(p, memory.getReadyQueue());
-                    }
+                    planificadorActual.reinsertFromBlocked(p, memory.getReadyQueue());
+                } else {
                     memory.getBlockedQueue().enqueue(p);
                 }
             }
@@ -287,13 +300,38 @@ public class Kernel {
         } catch (InterruptedException e) { e.printStackTrace(); }
     }
 
-    // --- Cambio dinámico de algoritmo (patrón Strategy) ---
-    public void setAlgorithm(String algorithm) {
-        this.activeAlgorithm = algorithm;
-        System.out.println("[KERNEL] Algoritmo cambiado a: " + algorithm);
+    // --- Cambio dinámico de algoritmo ---
+    public void setAlgoritmo(TipoAlgoritmo tipo) {
+        try {
+            mutex.acquire();
+            TipoAlgoritmo anterior = this.tipoActual;
+            this.tipoActual = tipo;
+
+            switch (tipo) {
+                case EDF -> this.planificadorActual = schedulerEDF;
+                case RR -> this.planificadorActual = schedulerRR;
+                case PRIORIDAD -> this.planificadorActual = schedulerPrio;
+                case SRT -> this.planificadorActual = schedulerSRT;
+                default -> this.planificadorActual = schedulerEDF;
+            }
+
+            String msg = "Sistema cambiado de " + anterior + " a " + tipo;
+            System.out.println("[KERNEL] " + msg);
+            logEvent(0, msg);
+            mutex.release();
+        } catch (InterruptedException e) { e.printStackTrace(); }
     }
 
-    public String getActiveAlgorithm() { return activeAlgorithm; }
+    public void setAlgorithm(String algorithm) {
+        switch (algorithm) {
+            case "EDF" -> setAlgoritmo(TipoAlgoritmo.EDF);
+            case "RR" -> setAlgoritmo(TipoAlgoritmo.RR);
+            case "PRIO" -> setAlgoritmo(TipoAlgoritmo.PRIORIDAD);
+            case "SRT" -> setAlgoritmo(TipoAlgoritmo.SRT);
+            default -> setAlgoritmo(TipoAlgoritmo.EDF);
+        }
+    }
+
 
     // --- Quantum dinámico (para GUI) ---
     public void setQuantum(int q) {
@@ -452,43 +490,50 @@ public class Kernel {
         } catch (InterruptedException e) { e.printStackTrace(); }
     }
     
-    // --- Reportes de misión ---
-    public void printMissionReports() {
-        System.out.println("\n[KERNEL] Algoritmo utilizado: " + activeAlgorithm);
-        if ("RR".equals(activeAlgorithm)) {
-            schedulerRR.printContextLog();
-            schedulerRR.printFailureReport();
-        } else if ("PRIO".equals(activeAlgorithm)) {
-            schedulerPrio.printContextLog();
-            schedulerPrio.printFailureReport();
-        } else if ("SRT".equals(activeAlgorithm)) {
-            schedulerSRT.printContextLog();
-            schedulerSRT.printFailureReport();
-        } else {
-            schedulerEDF.printContextLog();
-            schedulerEDF.printFailureReport();
+    // --- Reportes de misión y metricas ---
+     public void printMissionReports() {
+        System.out.println("\n[KERNEL] Algoritmo utilizado: " + tipoActual
+                + " (" + tipoActual.getDescripcion() + ")");
+
+        System.out.println("\n--- Métricas de Misión ---");
+        System.out.println("  Procesos totales:    " + totalProcesos);
+        System.out.println("  Completados:         " + procesosTerminados);
+        System.out.println("  Fallos de misión:    " + planificadorActual.getTotalFailures());
+        System.out.println("  Cambios de contexto: " + planificadorActual.getTotalContextSwitches());
+        double exitoRate = totalProcesos > 0
+                ? (procesosTerminados * 100.0 / totalProcesos) : 0;
+        System.out.println("  Tasa de éxito:       " + String.format("%.1f", exitoRate) + "%");
+
+        planificadorActual.printContextLog();
+        planificadorActual.printFailureReport();
+        printEventLog();
+    }
+    
+    private void logEvent(int cycle, String message) {
+        eventLog.addLast("[Ciclo " + cycle + "]: " + message);
+    }
+    
+    private void printEventLog() {
+        if (!eventLog.isEmpty()) {
+            System.out.println("\n--- Log de Eventos del Sistema ---");
+            for (int i = 0; i < eventLog.getSize(); i++) {
+                System.out.println("  " + eventLog.get(i));
+            }
         }
     }
     
     // Getters para que el Reloj y la GUI accedan a las piezas
     public CPU getCpu() { return cpu; }
     public Memory getMemory() { return memory; }
-    public PlanificadorEDF getSchedulerEDF() { return schedulerEDF; }
+    public IPlanificador getPlanificadorActual() { return planificadorActual; }
+    public TipoAlgoritmo getTipoActual()        { return tipoActual; }
+    public int getProcesosTerminados()           { return procesosTerminados; }
+    public int getProcesosFallidos()             { return procesosFallidos; }
+    public int getTotalProcesos()                { return totalProcesos; }
     public int getQuantum() { return schedulerRR.getQuantum(); }
+    public PlanificadorEDF getSchedulerEDF() { return schedulerEDF; }
     public PlanificadorRR getSchedulerRR() { return schedulerRR; }
     public PlanificadorPrioridad getSchedulerPrio() { return schedulerPrio; }
     public PlanificadorSRT getSchedulerSRT() { return schedulerSRT; }
 
-    // --- Ciclo genérico: delega al algoritmo activo ---
-    public void executeCycle(int currentCycle) {
-        if ("RR".equals(activeAlgorithm)) {
-            executeRrCycle(currentCycle);
-        } else if ("PRIO".equals(activeAlgorithm)) {
-            executePriorityCycle(currentCycle);
-        } else if ("SRT".equals(activeAlgorithm)) {
-            executeSrtCycle(currentCycle);
-        } else {
-            executeEdfCycle(currentCycle);
-        }
-    }  
 }
