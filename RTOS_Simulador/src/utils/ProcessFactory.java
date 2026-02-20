@@ -63,7 +63,7 @@ public class ProcessFactory {
         int ioDuration = 0;
         if (nextRandom(10) < 3 && instructions > 2) {
             ioInstruction = nextRandom(instructions - 1) + 1; // Entre la instrucción 1 y penúltima
-            ioDuration = nextRandom(3) + 1;                  // Duración de 1-3 ciclos
+            ioDuration = 3;                  // Duración 3 ciclos
         }
 
         return new Process(id, name, instructions, priority, deadline, ioInstruction, ioDuration);
@@ -107,7 +107,7 @@ public class ProcessFactory {
             int ioDuration = 0;
             if (nextRandom(4) == 0 && instructions > 2) {
                 ioInstruction = nextRandom(instructions - 1) + 1;
-                ioDuration = nextRandom(3) + 1;
+                ioDuration = 3;
             }
 
             processes.addLast(new Process(id, name, instructions, priority, deadline,

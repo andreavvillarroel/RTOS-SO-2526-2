@@ -3,12 +3,13 @@
  * Click nbfs://nbhost/SystemFileSystem/Templates/Classes/Class.java to edit this template
  */
 package modelos;
-
+import java.io.Serializable;
 /**
  *
  * @author Andrea
  */
-public class Process {
+public class Process implements Serializable {
+    private static final long serialVersionUID = 1L;
   // Datos de identificación
     private String id;
     private String name;
@@ -31,7 +32,8 @@ public class Process {
     private boolean hasDoneIO;    // Para que no se bloquee infinitas veces
     private int quantumConsumido; // Ciclos consumidos del quantum actual (para RR)
     private int effectivePriority; // Prioridad efectiva (puede cambiar con Aging)
-    private int waitCycles;        // Ciclos que lleva esperando en cola (para Aging)
+    private int waitCycles;        // Ciclos que lleva esperando en cola (para Aging
+    private int waitTime;          // Tiempo de espera total en cola de Listos (métrica)
     
     public Process(String id, String name, int totalInstructions, int priority, int deadline, int ioInstruction, int ioDuration) {
         this.id = id;
@@ -133,5 +135,14 @@ public class Process {
     public int getRemainingInstructions() { return totalInstructions - executedInstructions; }
     public int getTotalInstructions()     { return totalInstructions; }
     public int getExecutedInstructions()  { return executedInstructions; }
+    
+    // --- Métrica de tiempo de espera ---
+    public int getWaitTime()              { return waitTime; }
+    public void incrementWaitTime()       { this.waitTime++; }
+
+    // --- Getters de E/S para la GUI ---
+    public int getIoInstruction()         { return ioInstruction; }
+    public int getIoDuration()            { return ioDuration; }
+    public int getRemainingIoTime()       { return remainingIoTime; }
 }
     

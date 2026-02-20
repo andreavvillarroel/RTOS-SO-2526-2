@@ -19,6 +19,10 @@ import javax.swing.border.TitledBorder;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.JTableHeader;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.Style;
+import javax.swing.text.StyleConstants;
+import javax.swing.text.StyledDocument;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
@@ -87,10 +91,17 @@ public class MainFrame extends JFrame {
     private JPanel cpuGraphPanel;
 
     // === Log de Eventos ===
-    private JTextArea txtLog;
+    private JTextPane txtLog;
 
     // === Controles ===
     private JButton btnStartPause, btnStop, btnInject;
+    
+    // === RAM dinámica ===
+    private JSpinner spinnerRam;
+    private JProgressBar progressRam;
+    
+    // === Métricas adicionales ===
+    private JLabel lblMetricWaitAvg;
 
     // === Contador de procesos inyectados ===
     private int injectedCount = 0;
@@ -108,14 +119,14 @@ public class MainFrame extends JFrame {
 
     private void initKernel() {
         kernel = new Kernel();
-        // Cargar procesos de misión por defecto
-        kernel.addProcess(new Process("P1", "Sensor_1", 6, 2, 20, 3, 2));
-        kernel.addProcess(new Process("P2", "Sensor_2", 4, 0, 12, -1, 0));
-        kernel.addProcess(new Process("P3", "Camara_1", 5, 1, 8, 2, 3));
-        kernel.addProcess(new Process("P4", "Camara_2", 3, 3, 25, -1, 0));
-        kernel.addProcess(new Process("P5", "Telemetria", 0, 1, 15, -1, 0));
-        kernel.addProcess(new Process("P6", "Antena_A", 5, 1, 18, -1, 0));
-        kernel.addProcess(new Process("P7", "Antena_B", 5, 2, 3, -1, 0));
+        
+        // Procesos con E/S intensiva (fuerzan Bloqueado-Suspendido con RAM=5)
+        // E/S temprana + duración larga = se bloquean rápido y ocupan espacio
+        kernel.addProcess(new Process("P8",  "Radar_IO",   8, 1, 30, 1, 5));  // Se bloquea en inst 1, 5 ciclos E/S
+        kernel.addProcess(new Process("P9",  "GPS_Link",   7, 0, 25, 2, 4));  // Se bloquea en inst 2, 4 ciclos E/S
+        kernel.addProcess(new Process("P10", "Solar_Scan", 6, 2, 22, 1, 6));  // Se bloquea en inst 1, 6 ciclos E/S
+        kernel.addProcess(new Process("P11", "Gyro_Sync",  9, 1, 28, 3, 5));  // Se bloquea en inst 3, 5 ciclos E/S
+        kernel.addProcess(new Process("P12", "Comm_Burst", 5, 0, 20, 1, 4));  // Se bloquea en inst 1, 4 ciclos E/S
     }
 
     // =====================================================================
@@ -206,6 +217,25 @@ public class MainFrame extends JFrame {
         lblSpeedValue.setFont(FONT_DATA);
         lblSpeedValue.setForeground(YELLOW);
         bar.add(lblSpeedValue);
+
+        bar.add(createSeparator());
+        
+        // RAM dinámica
+        JLabel lblRam = new JLabel("RAM:");
+        lblRam.setFont(FONT_TITLE);
+        lblRam.setForeground(TEXT_PRIMARY);
+        bar.add(lblRam);
+
+        spinnerRam = new JSpinner(new SpinnerNumberModel(
+        kernel.getMemory().getMaxRamProcesses(), 1, 50, 1));
+        spinnerRam.setFont(FONT_DATA);
+        spinnerRam.setPreferredSize(new Dimension(55, 30));
+        bar.add(spinnerRam);
+
+        JButton btnRam = styledButton("SET", YELLOW);
+        btnRam.setForeground(Color.BLACK);
+        btnRam.addActionListener(e -> onRamLimitChanged());
+        bar.add(btnRam);
 
         bar.add(createSeparator());
 
@@ -469,19 +499,29 @@ public class MainFrame extends JFrame {
 
         // Métricas
         JPanel metrics = titledPanel("MÉTRICAS DE MISIÓN", CYAN);
-        metrics.setLayout(new GridLayout(6, 1, 0, 2));
+        metrics.setLayout(new BoxLayout(metrics, BoxLayout.Y_AXIS));
         lblMetricTotal = metricLabel("Procesos totales: 0");
         lblMetricCompleted = metricLabel("Completados: 0");
         lblMetricFailed = metricLabel("Fallos de misión: 0");
         lblMetricRate = metricLabel("Tasa de éxito: 0.0%");
         lblMetricThroughput = metricLabel("Throughput: 0.00");
         lblMetricContextSwitches = metricLabel("Context Switches: 0");
-        metrics.add(lblMetricTotal);
+        lblMetricWaitAvg = metricLabel("Espera prom: 0.0 ciclos");
+        
+         metrics.add(lblMetricTotal);
+        metrics.add(Box.createVerticalStrut(3));
         metrics.add(lblMetricCompleted);
+        metrics.add(Box.createVerticalStrut(3));
         metrics.add(lblMetricFailed);
+        metrics.add(Box.createVerticalStrut(3));
         metrics.add(lblMetricRate);
+        metrics.add(Box.createVerticalStrut(3));
         metrics.add(lblMetricThroughput);
+        metrics.add(Box.createVerticalStrut(3));
         metrics.add(lblMetricContextSwitches);
+        metrics.add(Box.createVerticalStrut(3));
+        metrics.add(lblMetricWaitAvg);
+        metrics.add(Box.createVerticalStrut(6));
         right.add(metrics, BorderLayout.NORTH);
 
         // Gráfico CPU
@@ -539,14 +579,48 @@ public class MainFrame extends JFrame {
         bottom.setPreferredSize(new Dimension(0, 140));
         bottom.setLayout(new BorderLayout());
 
-        txtLog = new JTextArea();
+        txtLog = new JTextPane();
         txtLog.setFont(FONT_SMALL);
         txtLog.setBackground(BG_TABLE);
         txtLog.setForeground(GREEN);
         txtLog.setCaretColor(GREEN);
         txtLog.setEditable(false);
-        txtLog.setLineWrap(true);
+        
+        // Crear estilos de colores
+        StyledDocument doc = txtLog.getStyledDocument();
+        Style styleNormal = doc.addStyle("normal", null);
+        StyleConstants.setForeground(styleNormal, GREEN);
+        StyleConstants.setFontFamily(styleNormal, "Consolas");
+        StyleConstants.setFontSize(styleNormal, 11);
 
+        Style styleMeteor = doc.addStyle("meteor", null);
+        StyleConstants.setForeground(styleMeteor, new Color(255, 100, 50));
+        StyleConstants.setFontFamily(styleMeteor, "Consolas");
+        StyleConstants.setFontSize(styleMeteor, 11);
+        StyleConstants.setBold(styleMeteor, true);
+
+        Style styleAlert = doc.addStyle("alert", null);
+        StyleConstants.setForeground(styleAlert, RED);
+        StyleConstants.setFontFamily(styleAlert, "Consolas");
+        StyleConstants.setFontSize(styleAlert, 11);
+        StyleConstants.setBold(styleAlert, true);
+
+        Style styleIO = doc.addStyle("io", null);
+        StyleConstants.setForeground(styleIO, YELLOW);
+        StyleConstants.setFontFamily(styleIO, "Consolas");
+        StyleConstants.setFontSize(styleIO, 11);
+
+        Style styleComplete = doc.addStyle("complete", null);
+        StyleConstants.setForeground(styleComplete, CYAN);
+        StyleConstants.setFontFamily(styleComplete, "Consolas");
+        StyleConstants.setFontSize(styleComplete, 11);
+
+        Style styleSystem = doc.addStyle("system", null);
+        StyleConstants.setForeground(styleSystem, PURPLE);
+        StyleConstants.setFontFamily(styleSystem, "Consolas");
+        StyleConstants.setFontSize(styleSystem, 11);
+        StyleConstants.setBold(styleSystem, true);
+        
         JScrollPane sp = new JScrollPane(txtLog);
         sp.setBorder(BorderFactory.createEmptyBorder());
         sp.getViewport().setBackground(BG_TABLE);
@@ -614,6 +688,13 @@ public class MainFrame extends JFrame {
         if (clock != null) {
             clock.setCycleDuration(ms);
         }
+    }
+    
+    private void onRamLimitChanged() {
+        int newLimit = (int) spinnerRam.getValue();
+        kernel.updateRamLimit(newLimit);
+        logEvent("Límite de RAM actualizado a " + newLimit + " procesos");
+        refreshAllTables();
     }
 
     private void onMeteorImpact() {
@@ -743,6 +824,13 @@ public class MainFrame extends JFrame {
         clock = new SimulationClock(sliderSpeed.getValue(), kernel);
         interruptHandler = new InterruptHandler(clock);
         clock.setInterruptHandler(interruptHandler);
+        
+        // Listener de eventos del Kernel -> GUI log con colores
+        kernel.setEventListener(message -> {
+            SwingUtilities.invokeLater(() -> {
+                appendColoredLog(message);
+            });
+        });
 
         // Listener: cada ciclo actualiza la GUI
         clock.setOnCycleListener(() -> {
@@ -890,6 +978,8 @@ public class MainFrame extends JFrame {
         double rate = total > 0 ? (completed * 100.0 / total) : 0;
         int cycles = (clock != null) ? clock.getTotalCycles() : 0;
         double throughput = cycles > 0 ? ((double) completed / cycles) : 0;
+        double avgWait = kernel.getAvgWaitTime();
+
 
         lblMetricTotal.setText("Procesos totales: " + total);
         lblMetricCompleted.setText("Completados: " + completed);
@@ -897,6 +987,7 @@ public class MainFrame extends JFrame {
         lblMetricRate.setText(String.format("Tasa de éxito: %.1f%%", rate));
         lblMetricThroughput.setText(String.format("Throughput: %.3f p/c", throughput));
         lblMetricContextSwitches.setText("Context Switches: " + switches);
+        lblMetricWaitAvg.setText(String.format("  Espera prom: %.1f ciclos", avgWait));
     }
 
     private void refreshCpuGraph() {
@@ -973,9 +1064,35 @@ public class MainFrame extends JFrame {
         int cycle = (clock != null) ? clock.getTotalCycles() : 0;
         String entry = "[Ciclo " + cycle + "] " + message + "\n";
         SwingUtilities.invokeLater(() -> {
-            txtLog.append(entry);
-            txtLog.setCaretPosition(txtLog.getDocument().getLength());
+            appendColoredLog(entry);
         });
+    }
+    
+     private void appendColoredLog(String message) {
+        StyledDocument doc = txtLog.getStyledDocument();
+        String styleName;
+
+        if (message.contains("☄") || message.contains("METEORITO") || message.contains("INTERRUPCIÓN")) {
+            styleName = "meteor";
+        } else if (message.contains("¡ALERTA!") || message.contains("FALLO") || message.contains("Fallo")) {
+            styleName = "alert";
+        } else if (message.contains("E/S") || message.contains("Bloqueado")) {
+            styleName = "io";
+        } else if (message.contains("✓") || message.contains("completado") || message.contains("TERMINADO")) {
+            styleName = "complete";
+        } else if (message.contains("cambiado") || message.contains("RAM") || message.contains("Swap")
+                || message.contains("ESTRÉS") || message.contains("Inyectado")) {
+            styleName = "system";
+        } else {
+            styleName = "normal";
+        }
+
+        try {
+            Style style = doc.getStyle(styleName);
+            if (style == null) style = doc.getStyle("normal");
+            doc.insertString(doc.getLength(), message + "\n", style);
+            txtLog.setCaretPosition(doc.getLength());
+        } catch (BadLocationException e) { /* ignorar */ }
     }
 
     // =====================================================================
