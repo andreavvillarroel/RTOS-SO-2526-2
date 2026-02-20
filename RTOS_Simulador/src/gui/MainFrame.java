@@ -377,11 +377,20 @@ public class MainFrame extends JFrame {
 
         return panel;
     }
+    private void onStressLoad() {        // 1. Usamos fábrica para generar 20 procesos
+        int cantidad = 20;
+        estructuras.ListaDobleEnlazada<modelos.Process> nuevosProcesos = utils.ProcessFactory.createStressLoad(cantidad);
+        for (int i = 0; i < nuevosProcesos.getSize(); i++) {
+            kernel.addProcess(nuevosProcesos.get(i));
+        }
+        logEvent("⚡ CARGA DE ESTRÉS: " + cantidad + " procesos generados por ProcessFactory.");
+        refreshAllTables();
+    }
 
     // =====================================================================
     // TABLAS DE COLAS
     // =====================================================================
-
+    
     private JPanel createRamPanel() {
         JPanel panel = titledPanel("MEMORIA RAM", CYAN);
         panel.setLayout(new GridLayout(3, 1, 0, 3));
