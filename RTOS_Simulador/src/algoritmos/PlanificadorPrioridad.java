@@ -15,7 +15,7 @@ import modelos.Process;
  * Empates se resuelven por FCFS (el que llegó primero).
  * @author Francisco
  */
-public class PlanificadorPrioridad {
+public class PlanificadorPrioridad implements IPlanificador {
     
     // --- Registro de contexto guardado al desalojar ---
     public static class SavedContext {
@@ -285,5 +285,38 @@ public class PlanificadorPrioridad {
     // --- Getters de bitácora ---
     public ListaDobleEnlazada<SavedContext> getContextLog() { return contextLog; }
     public ListaDobleEnlazada<Process> getFailedProcesses() { return failedProcesses; }
+    
+    // --- IPlanificador: campos temporales ---
+    private Process procesoAsignado;
+    private Process procesoExpulsado;
+
+    @Override
+    public String decide(MyQueue<Process> readyQueue, Process runningProcess, int currentCycle) {
+        SchedulingResult result = schedule(readyQueue, runningProcess, currentCycle);
+        this.procesoAsignado = result.getAssignedProcess();
+        this.procesoExpulsado = result.getPreemptedProcess();
+        return switch (result.getAction()) {
+            case ASSIGN_NEW -> "ASSIGN_NEW";
+            case PREEMPT_PRIORITY -> "PREEMPT";
+            case NO_CHANGE -> "NO_CHANGE";
+            case CPU_IDLE -> "CPU_IDLE";
+            case MISSION_FAIL_CPU -> "MISSION_FAIL_CPU";
+        };
+    }
+
+    @Override public Process getAssignedProcess()  { return procesoAsignado; }
+    @Override public Process getPreemptedProcess()  { return procesoExpulsado; }
+    @Override public String getName()             { return "PRIO"; }
+
+    @Override
+    public String getExtraInfo(Process p) {
+        return "prio=" + p.getEffectivePriority();
+    }
+
+    @Override public void postExecution(Process p)     { /* No aplica para Prioridad */ }
+    @Override public void onProcessLeavesCpu(Process p)   { /* No aplica para Prioridad */ }
+    @Override public int getTotalFailures()                { return failedProcesses.getSize(); }
+    @Override public int getTotalContextSwitches()       { return contextLog.getSize(); }
+
     
 }

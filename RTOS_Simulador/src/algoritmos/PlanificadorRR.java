@@ -15,7 +15,7 @@ import modelos.Process;
  * 
  * @author Francisco
  */
-public class PlanificadorRR {
+public class PlanificadorRR implements IPlanificador {
 
     // --- Quantum dinámico (modificable desde GUI o Kernel) ---
     private int quantum;
@@ -271,6 +271,45 @@ public class PlanificadorRR {
     // --- Getters de bitácora ---
     public ListaDobleEnlazada<SavedContext> getContextLog() { return contextLog; }
     public ListaDobleEnlazada<Process> getFailedProcesses() { return failedProcesses; }
-
     
+    // --- IPlanificador: campos temporales ---
+    private Process procesoAsignado;
+    private Process procesoExpulsado;
+
+    @Override
+    public String decide(MyQueue<Process> readyQueue, Process runningProcess, int currentCycle) {
+        SchedulingResult result = schedule(readyQueue, runningProcess, currentCycle);
+        this.procesoAsignado = result.getAssignedProcess();
+        this.procesoExpulsado = result.getPreemptedProcess();
+        return switch (result.getAction()) {
+            case ASSIGN_NEW -> "ASSIGN_NEW";
+            case QUANTUM_EXPIRED -> "PREEMPT";
+            case NO_CHANGE -> "NO_CHANGE";
+            case CPU_IDLE -> "CPU_IDLE";
+            case MISSION_FAIL_CPU -> "MISSION_FAIL_CPU";
+        };
+    }
+
+    @Override public Process getAssignedProcess()  { return procesoAsignado; }
+    @Override public Process getPreemptedProcess()  { return procesoExpulsado; }
+    @Override public String getName()             { return "RR"; }
+
+    @Override
+    public String getExtraInfo(Process p) {
+        return "quantum=" + quantumCounter + "/" + quantum;
+    }
+
+    @Override
+    public void postExecution(Process p) {
+        tickQuantum();
+    }
+
+    @Override
+    public void onProcessLeavesCpu(Process p) {
+        resetQuantum();
+    }
+
+    @Override public int getTotalFailures()                { return failedProcesses.getSize(); }
+    @Override public int getTotalContextSwitches()       { return contextLog.getSize(); }
+   
 }
