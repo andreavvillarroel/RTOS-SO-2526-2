@@ -3,12 +3,13 @@
  * Click nbfs://nbhost/SystemFileSystem/Templates/Classes/Class.java to edit this template
  */
 package modelos;
-
+import java.io.Serializable;
 /**
  *
  * @author Andrea
  */
-public class Process {
+public class Process implements Serializable {
+    private static final long serialVersionUID = 1L;
   // Datos de identificación
     private String id;
     private String name;
@@ -29,7 +30,11 @@ public class Process {
     private int ioDuration;         // Cuántos ciclos se queda bloqueado
     private int remainingIoTime;    // Cuenta regresiva del bloqueo
     private boolean hasDoneIO;    // Para que no se bloquee infinitas veces
-
+    private int quantumConsumido; // Ciclos consumidos del quantum actual (para RR)
+    private int effectivePriority; // Prioridad efectiva (puede cambiar con Aging)
+    private int waitCycles;        // Ciclos que lleva esperando en cola (para Aging
+    private int waitTime;          // Tiempo de espera total en cola de Listos (métrica)
+    
     public Process(String id, String name, int totalInstructions, int priority, int deadline, int ioInstruction, int ioDuration) {
         this.id = id;
         this.name = name;
@@ -45,6 +50,9 @@ public class Process {
         this.ioDuration = ioDuration;
         this.remainingIoTime = 0;
         this.hasDoneIO = false;
+        this.quantumConsumido = 0;
+        this.effectivePriority = priority; // Comienza igual a la prioridad base
+        this.waitCycles = 0;
     }
 
     /**
@@ -79,4 +87,62 @@ public class Process {
     public void startIO() {this.remainingIoTime = ioDuration;this.hasDoneIO = true;this.status = "Bloqueado";}
     public void tickIO() {if (remainingIoTime > 0) remainingIoTime--;}
     public boolean isIoFinished() {return remainingIoTime <= 0;}
+    
+    // --- Getters agregados para el Planificador EDF ---
+    public int getPc() { return pc; }
+    public int getMar() { return mar; }
+    public int getDeadline() { return deadline; }
+
+    /**
+     * Restaura los registros PC y MAR al recargar un proceso
+     * que fue expulsado por preempción (cambio de contexto).
+     */
+    public void restoreContext(int pc, int mar) {
+        this.pc = pc;
+        this.mar = mar;
+    }
+    
+     // --- Getters agregados para el Planificador Round Robin ---
+    public int getQuantumConsumido()                { return quantumConsumido; }
+    public void setQuantumConsumido(int q)          { this.quantumConsumido = q; }
+    public void incrementQuantumConsumido()         { this.quantumConsumido++; }
+    public void resetQuantumConsumido()             { this.quantumConsumido = 0; }
+    
+    // --- Getters y métodos para Planificador de Prioridad con Aging ---
+    public int getEffectivePriority()               { return effectivePriority; }
+    public void setEffectivePriority(int p)         { this.effectivePriority = p; }
+    public int getWaitCycles()                      { return waitCycles; }
+    public void incrementWaitCycles()               { this.waitCycles++; }
+    public void resetWaitCycles()                   { this.waitCycles = 0; }
+
+    /**
+     * Aplica Aging: reduce la prioridad efectiva (la sube en importancia).
+     * No puede bajar de 0 (la máxima prioridad).
+     */
+    public void applyAging(int boost) {
+        this.effectivePriority = Math.max(0, this.effectivePriority - boost);
+    }
+
+    /**
+     * Restaura la prioridad efectiva a la prioridad base original.
+     * Se llama cuando el proceso entra a CPU o se necesita resetear.
+     */
+    public void resetEffectivePriority() {
+        this.effectivePriority = this.priority;
+    }
+    
+    // --- Getters agregados para el Planificador SRT ---
+    public int getRemainingInstructions() { return totalInstructions - executedInstructions; }
+    public int getTotalInstructions()     { return totalInstructions; }
+    public int getExecutedInstructions()  { return executedInstructions; }
+    
+    // --- Métrica de tiempo de espera ---
+    public int getWaitTime()              { return waitTime; }
+    public void incrementWaitTime()       { this.waitTime++; }
+
+    // --- Getters de E/S para la GUI ---
+    public int getIoInstruction()         { return ioInstruction; }
+    public int getIoDuration()            { return ioDuration; }
+    public int getRemainingIoTime()       { return remainingIoTime; }
 }
+    

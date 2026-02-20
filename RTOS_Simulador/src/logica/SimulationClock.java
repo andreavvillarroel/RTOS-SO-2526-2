@@ -15,8 +15,11 @@ public class SimulationClock extends Thread {
     private int cycleDurationMs; // Duración de cada ciclo en milisegundos
     private int totalCycles;      // Contador global de ciclos
     private boolean running;      // Control del hilo
+    private boolean paused;       // Control de pausa
     private boolean interrupted = false;
     private Kernel kernel; 
+    private InterruptHandler interruptHandler; // Referencia para detenerlo al finalizar
+    private Runnable onCycleListener; // Listener para la GUI
     
     // Proceso que está actualmente en CPU 
     private Process currentProcess;
@@ -47,47 +50,58 @@ public class SimulationClock extends Thread {
                 }
 
                 Thread.sleep(cycleDurationMs);
+                // Verificar pausa
+                while (paused && running) {
+                    Thread.sleep(100);
+                }
+                if (!running) break;
+                
                 totalCycles++;
                 kernel.updateBlockedProcesses();
-
-                // Miramos qué hay en la CPU física
-                Process p = kernel.getCpu().getCurrentProcess();
-
-                if (p != null) {
-                    if (p.shouldBlock()) {
-                        kernel.blockProcess(p); // El kernel lo saca de la CPU y lo bloquea
-                    } else if (!p.isFinished()) {
-                        p.executeInstruction();
-                        p.updateDeadline();
-                        System.out.println("[Ciclo " + totalCycles + "] " + p.getName() + " en CPU.");
-                    } else {
-                        System.out.println("[Ciclo " + totalCycles + "] " + p.getName() + " TERMINADO.");
-                        p.setStatus("Terminado");
-                        kernel.getCpu().release(); // Liberamos la CPU física
-                    }
-                } else {
-                    // CPU libre: Pedimos al Kernel el siguiente
-                    Process next = kernel.getNextProcess();
-                    if (next != null) {
-                        next.setStatus("Ejecución");
-                        kernel.getCpu().setProcess(next); // Ponemos el proceso en el socket de la CPU
-                        System.out.println("[Ciclo " + totalCycles + "] KERNEL: Asignando " + next.getName());
-                    } else {
-                        System.out.println("[Ciclo " + totalCycles + "] CPU Ociosa...");
-                    }
+                
+                // Delegamos toda la lógica al planificador activo del Kernel
+                kernel.executeCycle(totalCycles);
+                
+                 // Notificar a la GUI
+                if (onCycleListener != null) {
+                    onCycleListener.run();
+                }
+                
+                // Condición de parada: todos los procesos terminaron o fallaron
+                if (kernel.isSimulationComplete()) {
+                    System.out.println("\n[RELOJ] Simulación completada en " + totalCycles + " ciclos.");
+                    running = false;
                 }
 
             } catch (InterruptedException e) { running = false; }
+        }
+        // Al terminar la simulación, imprimir reportes de misión
+        kernel.printMissionReports();
+        if (interruptHandler != null) {
+            interruptHandler.stopHandler();
         }
     }
     
 
     // Métodos de control
     public void stopSimulation() { this.running = false; }
+    public void pauseSimulation() { this.paused = true; }
+    public void resumeSimulation() { this.paused = false; }
+    public boolean isPaused() { return paused; }
+    public boolean isRunning() { return running; }
     public void setCycleDuration(int ms) { this.cycleDurationMs = ms; }
+    public int getCycleDurationMs() { return cycleDurationMs; }
     public int getTotalCycles() { return totalCycles; }
+    
+    public void setOnCycleListener(Runnable listener) {
+        this.onCycleListener = listener;
+    }
     
     public void setCurrentProcess(Process p) {
         this.currentProcess = p;
+    }
+    
+    public void setInterruptHandler(InterruptHandler handler) {
+        this.interruptHandler = handler;
     }
 }

@@ -48,5 +48,6 @@ public class InterruptHandler extends Thread {
 
     public void stopHandler() {
         this.running = false;
+        this.interrupt(); // Corta el Thread.sleep inmediatamente
     }
 }
