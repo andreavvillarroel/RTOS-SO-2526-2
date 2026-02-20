@@ -1,0 +1,322 @@
+/*
+ * Click nbfs://nbhost/SystemFileSystem/Templates/Licenses/license-default.txt to change this license
+ * Click nbfs://nbhost/SystemFileSystem/Templates/Classes/Class.java to edit this template
+ */
+package algoritmos;
+
+import estructuras.ListaDobleEnlazada;
+import estructuras.MyQueue;
+import modelos.Process;
+
+/**
+ * Planificador de Prioridad Estática Preemptiva con Aging.
+ * El proceso con el número de prioridad más bajo (más importante) va primero.
+ * Si llega uno más prioritario que el que está en CPU, lo desaloja.
+ * Empates se resuelven por FCFS (el que llegó primero).
+ * @author Francisco
+ */
+public class PlanificadorPrioridad implements IPlanificador {
+    
+    // --- Registro de contexto guardado al desalojar ---
+    public static class SavedContext {
+        private final String processId;
+        private final int savedPc;
+        private final int savedMar;
+        private final int cycleOfPreemption;
+        private final String reason;
+
+        public SavedContext(String processId, int pc, int mar, int cycle, String reason) {
+            this.processId = processId;
+            this.savedPc = pc;
+            this.savedMar = mar;
+            this.cycleOfPreemption = cycle;
+            this.reason = reason;
+        }
+
+        @Override
+        public String toString() {
+            return "Proceso=" + processId + " | PC=" + savedPc
+                 + " | MAR=" + savedMar + " | Ciclo=" + cycleOfPreemption
+                 + " | Razón=" + reason;
+        }
+
+        public String getProcessId()      { return processId; }
+        public int getSavedPc()            { return savedPc; }
+        public int getSavedMar()           { return savedMar; }
+        public int getCycleOfPreemption()  { return cycleOfPreemption; }
+        public String getReason()          { return reason; }
+    }
+
+    // --- Configuración de Aging ---
+    private int agingThreshold;   // Cada cuántos ciclos se aplica aging
+    private int agingBoost;       // Cuánto sube la prioridad (se resta al número)
+    private boolean agingEnabled;
+
+    // --- Bitácora del satélite ---
+    private final ListaDobleEnlazada<SavedContext> contextLog;
+    private final ListaDobleEnlazada<Process> failedProcesses;
+
+    public PlanificadorPrioridad() {
+        this.agingThreshold = 5;  // Cada 5 ciclos de espera
+        this.agingBoost = 1;      // Sube 1 nivel de prioridad
+        this.agingEnabled = true;
+        this.contextLog = new ListaDobleEnlazada<>();
+        this.failedProcesses = new ListaDobleEnlazada<>();
+    }
+
+    // --- Acciones posibles ---
+    public enum Action {
+        ASSIGN_NEW,
+        PREEMPT_PRIORITY,
+        NO_CHANGE,
+        CPU_IDLE,
+        MISSION_FAIL_CPU
+    }
+
+    // --- Resultado de planificación ---
+    public static class SchedulingResult {
+        private final Action action;
+        private final Process assignedProcess;
+        private final Process preemptedProcess;
+
+        public SchedulingResult(Action action, Process assigned, Process preempted) {
+            this.action = action;
+            this.assignedProcess = assigned;
+            this.preemptedProcess = preempted;
+        }
+
+        public Action getAction()            { return action; }
+        public Process getAssignedProcess()  { return assignedProcess; }
+        public Process getPreemptedProcess() { return preemptedProcess; }
+    }
+    
+    // --- Reintegración de procesos que vuelven de E/S ---
+    public void reinsertFromBlocked(Process process, MyQueue<Process> readyQueue) {
+        process.setStatus("Listo");
+        process.resetWaitCycles();
+        readyQueue.enqueue(process);
+        sortByPriority(readyQueue);
+        System.out.println("[PRIO] " + process.getName()
+                + " reintegrado desde E/S (prioridad="
+                + process.getEffectivePriority() + ")");
+    }
+    
+    // --- Método principal: se invoca en cada ciclo de reloj ---
+    public SchedulingResult schedule(MyQueue<Process> readyQueue,
+                                     Process runningProcess,
+                                     int currentCycle) {
+
+        // Detectar fallos de misión en la cola de listos
+        detectMissionFailures(readyQueue, currentCycle);
+
+        // Verificar si el proceso en CPU superó su deadline
+        if (runningProcess != null && hasExceededDeadline(runningProcess)) {
+            saveContext(runningProcess, currentCycle, "Fallo de Misión");
+            registerMissionFailure(runningProcess, currentCycle);
+            return new SchedulingResult(Action.MISSION_FAIL_CPU, null, runningProcess);
+        }
+
+        // Aplicar aging a los procesos en espera
+        if (agingEnabled) {
+            applyAging(readyQueue, currentCycle);
+        }
+
+        // Ordenar cola por prioridad (menor número = más importante, FCFS en empates)
+        sortByPriority(readyQueue);
+
+        // CPU libre -> asignar el más prioritario
+        if (runningProcess == null) {
+            Process next = readyQueue.dequeue();
+            if (next != null) {
+                next.setStatus("Ejecución");
+                next.resetWaitCycles();
+                return new SchedulingResult(Action.ASSIGN_NEW, next, null);
+            }
+            return new SchedulingResult(Action.CPU_IDLE, null, null);
+        }
+
+        // CPU ocupada -> evaluar desalojo por prioridad
+        Process candidate = readyQueue.peek();
+        if (candidate != null && candidate.getEffectivePriority() < runningProcess.getEffectivePriority()) {
+            // Desalojo: el candidato es más prioritario
+            saveContext(runningProcess, currentCycle, "Desalojo por Prioridad");
+
+            System.out.println("[PRIO] Desalojo: " + runningProcess.getName()
+                    + " (prio=" + runningProcess.getEffectivePriority()
+                    + ") sale, entra " + candidate.getName()
+                    + " (prio=" + candidate.getEffectivePriority() + ")");
+
+            runningProcess.setStatus("Listo");
+            readyQueue.dequeue();
+            readyQueue.enqueue(runningProcess);
+            candidate.setStatus("Ejecución");
+            candidate.resetWaitCycles();
+
+            return new SchedulingResult(Action.PREEMPT_PRIORITY, candidate, runningProcess);
+        }
+
+        return new SchedulingResult(Action.NO_CHANGE, runningProcess, null);
+    }
+
+    // --- Ordenamiento por prioridad (Insertion Sort, FCFS en empates) ---
+    public void sortByPriority(MyQueue<Process> queue) {
+        ListaDobleEnlazada<Process> list = queue.getList();
+        int size = list.getSize();
+        if (size <= 1) return;
+
+        Process[] temp = new Process[size];
+        for (int i = 0; i < size; i++) {
+            temp[i] = list.get(i);
+        }
+
+        // Insertion sort estable: menor effectivePriority primero
+        // Al ser estable, procesos con misma prioridad mantienen orden FCFS
+        for (int i = 1; i < size; i++) {
+            Process key = temp[i];
+            int j = i - 1;
+            while (j >= 0 && temp[j].getEffectivePriority() > key.getEffectivePriority()) {
+                temp[j + 1] = temp[j];
+                j--;
+            }
+            temp[j + 1] = key;
+        }
+
+        while (!queue.isEmpty()) {
+            queue.dequeue();
+        }
+        for (int i = 0; i < size; i++) {
+            queue.enqueue(temp[i]);
+        }
+    }
+
+    // --- Aging: subir prioridad de procesos que llevan mucho esperando ---
+    private void applyAging(MyQueue<Process> readyQueue, int currentCycle) {
+        ListaDobleEnlazada<Process> list = readyQueue.getList();
+        for (int i = 0; i < list.getSize(); i++) {
+            Process p = list.get(i);
+            if (p != null) {
+                p.incrementWaitCycles();
+                if (p.getWaitCycles() >= agingThreshold) {
+                    int oldPrio = p.getEffectivePriority();
+                    p.applyAging(agingBoost);
+                    if (p.getEffectivePriority() < oldPrio) {
+                        System.out.println("[PRIO] Aging: " + p.getName()
+                                + " sube de prioridad " + oldPrio
+                                + " -> " + p.getEffectivePriority()
+                                + " (esperó " + agingThreshold + " ciclos)");
+                    }
+                    p.resetWaitCycles();
+                }
+            }
+        }
+    }
+
+    // --- Detección de fallos de misión ---
+    private void detectMissionFailures(MyQueue<Process> readyQueue, int currentCycle) {
+        ListaDobleEnlazada<Process> list = readyQueue.getList();
+        for (int i = list.getSize() - 1; i >= 0; i--) {
+            Process p = list.get(i);
+            if (p != null && hasExceededDeadline(p)) {
+                registerMissionFailure(p, currentCycle);
+                list.remove(p);
+            }
+        }
+    }
+
+    private boolean hasExceededDeadline(Process p) {
+        return p.getRemainingDeadline() <= 0 && !p.isFinished();
+    }
+
+    private void registerMissionFailure(Process p, int currentCycle) {
+        p.setStatus("Fallo de Misión");
+        failedProcesses.addLast(p);
+        System.out.println("[PRIO] FALLO DE MISIÓN: " + p.getName()
+                + " (ID=" + p.getId() + ") en ciclo " + currentCycle
+                + " - Deadline superado sin completar");
+    }
+
+    // --- Guardado de contexto ---
+    private void saveContext(Process process, int currentCycle, String reason) {
+        SavedContext ctx = new SavedContext(
+                process.getId(),
+                process.getPc(),
+                process.getMar(),
+                currentCycle,
+                reason
+        );
+        contextLog.addLast(ctx);
+        System.out.println("[PRIO] Contexto guardado: " + ctx);
+    }
+
+
+    // --- Reportes ---
+    public void printContextLog() {
+        System.out.println("\n--- Bitácora de Cambios de Contexto (Prioridad) ---");
+        if (contextLog.isEmpty()) {
+            System.out.println("  No se realizaron cambios de contexto.");
+        } else {
+            for (int i = 0; i < contextLog.getSize(); i++) {
+                System.out.println("  " + contextLog.get(i));
+            }
+        }
+    }
+
+    public void printFailureReport() {
+        System.out.println("\n--- Reporte de Fallos de Misión (Prioridad) ---");
+        if (failedProcesses.isEmpty()) {
+            System.out.println("  Todos los procesos cumplieron su deadline.");
+        } else {
+            System.out.println("  Total de fallos: " + failedProcesses.getSize());
+            for (int i = 0; i < failedProcesses.getSize(); i++) {
+                Process p = failedProcesses.get(i);
+                System.out.println("  - " + p.getId() + " (" + p.getName() + ")");
+            }
+        }
+    }
+
+    // --- Configuración de Aging ---
+    public void setAgingEnabled(boolean enabled)   { this.agingEnabled = enabled; }
+    public void setAgingThreshold(int threshold)    { this.agingThreshold = threshold; }
+    public void setAgingBoost(int boost)            { this.agingBoost = boost; }
+    public boolean isAgingEnabled()                 { return agingEnabled; }
+    public int getAgingThreshold()                  { return agingThreshold; }
+    public int getAgingBoost()                      { return agingBoost; }
+
+    // --- Getters de bitácora ---
+    public ListaDobleEnlazada<SavedContext> getContextLog() { return contextLog; }
+    public ListaDobleEnlazada<Process> getFailedProcesses() { return failedProcesses; }
+    
+    // --- IPlanificador: campos temporales ---
+    private Process procesoAsignado;
+    private Process procesoExpulsado;
+
+    @Override
+    public String decide(MyQueue<Process> readyQueue, Process runningProcess, int currentCycle) {
+        SchedulingResult result = schedule(readyQueue, runningProcess, currentCycle);
+        this.procesoAsignado = result.getAssignedProcess();
+        this.procesoExpulsado = result.getPreemptedProcess();
+        return switch (result.getAction()) {
+            case ASSIGN_NEW -> "ASSIGN_NEW";
+            case PREEMPT_PRIORITY -> "PREEMPT";
+            case NO_CHANGE -> "NO_CHANGE";
+            case CPU_IDLE -> "CPU_IDLE";
+            case MISSION_FAIL_CPU -> "MISSION_FAIL_CPU";
+        };
+    }
+
+    @Override public Process getAssignedProcess()  { return procesoAsignado; }
+    @Override public Process getPreemptedProcess()  { return procesoExpulsado; }
+    @Override public String getName()             { return "PRIO"; }
+
+    @Override
+    public String getExtraInfo(Process p) {
+        return "prio=" + p.getEffectivePriority();
+    }
+
+    @Override public void postExecution(Process p)     { /* No aplica para Prioridad */ }
+    @Override public void onProcessLeavesCpu(Process p)   { /* No aplica para Prioridad */ }
+    @Override public int getTotalFailures()                { return failedProcesses.getSize(); }
+    @Override public int getTotalContextSwitches()       { return contextLog.getSize(); }
+
+    
+}
