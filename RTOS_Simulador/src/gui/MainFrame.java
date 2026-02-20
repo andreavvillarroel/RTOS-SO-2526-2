@@ -11,6 +11,7 @@ import logica.InterruptHandler;
 import logica.Kernel;
 import logica.SimulationClock;
 import modelos.Process;
+import utils.ProcessFactory;
 
 import javax.swing.*;
 import javax.swing.border.Border;
@@ -350,11 +351,18 @@ public class MainFrame extends JFrame {
         btnMeteor.addActionListener(e -> onMeteorImpact());
         panel.add(btnMeteor, gbc);
 
-        // Botón inyectar proceso
+        // Botón inyectar tarea individual
         gbc.gridy = 1;
-        btnInject = styledButton("⊕ INYECTAR PROCESO", PURPLE);
+        btnInject = styledButton("⊕ INYECTAR TAREA", PURPLE);
         btnInject.addActionListener(e -> onInjectProcess());
         panel.add(btnInject, gbc);
+
+        // Botón generar 20 procesos de estrés
+        gbc.gridy = 2;
+        JButton btnStress = styledButton("⚡ GENERAR 20 PROCESOS", YELLOW);
+        btnStress.setForeground(Color.BLACK);
+        btnStress.addActionListener(e -> onStressLoad());
+        panel.add(btnStress, gbc);
 
         // Botones de serialización
         gbc.gridy = 2;

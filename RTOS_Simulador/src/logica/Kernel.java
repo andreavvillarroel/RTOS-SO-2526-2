@@ -8,6 +8,7 @@ import algoritmos.PlanificadorEDF;
 import algoritmos.PlanificadorRR;
 import algoritmos.PlanificadorPrioridad;
 import algoritmos.PlanificadorSRT;
+import algoritmos.PlanificadorFCFS;
 import algoritmos.IPlanificador;
 import algoritmos.TipoAlgoritmo;
 import estructuras.ListaDobleEnlazada;
@@ -22,6 +23,7 @@ public class Kernel {
     private PlanificadorRR schedulerRR;
     private PlanificadorPrioridad schedulerPrio;
     private PlanificadorSRT schedulerSRT;
+    private PlanificadorFCFS schedulerFCFS;
 
     private IPlanificador planificadorActual;
     private TipoAlgoritmo tipoActual;
@@ -41,9 +43,11 @@ public class Kernel {
         this.schedulerRR = new PlanificadorRR(3);
         this.schedulerPrio = new PlanificadorPrioridad();
         this.schedulerSRT = new PlanificadorSRT();
+        this.schedulerFCFS = new PlanificadorFCFS();
         
-        this.tipoActual = TipoAlgoritmo.EDF;
-        this.planificadorActual = schedulerEDF;
+        
+        this.tipoActual = TipoAlgoritmo.FCFS;
+        this.planificadorActual = schedulerFCFS;
         
         this.procesosTerminados = 0;
         this.procesosFallidos = 0;
@@ -85,6 +89,35 @@ public class Kernel {
             mutex.release();
             return p;
         } catch (InterruptedException e) { return null; }
+    }
+    
+    /**
+     * Carga masiva de procesos con exclusión mutua.
+     * Un solo acquire/release para todo el lote, evitando condiciones de carrera
+     * si el reloj está corriendo en paralelo.
+     */
+    public void addBulkProcesses(ListaDobleEnlazada<Process> processes) {
+        try {
+            mutex.acquire();
+            int loaded = 0;
+            int swapped = 0;
+            for (int i = 0; i < processes.getSize(); i++) {
+                Process p = processes.get(i);
+                totalProcesos++;
+                if (memory.getRamUsage() < memory.getMaxRamProcesses()) {
+                    p.setStatus("Listo");
+                    memory.getReadyQueue().enqueue(p);
+                    loaded++;
+                } else {
+                    p.setStatus("Listo-Suspendido");
+                    memory.getSuspendedReadyQueue().enqueue(p);
+                    swapped++;
+                }
+            }
+            System.out.println("[KERNEL] Carga masiva: " + loaded + " en RAM, "
+                    + swapped + " en SWAP (" + processes.getSize() + " procesos total)");
+            mutex.release();
+        } catch (InterruptedException e) { e.printStackTrace(); }
     }
 
     // --- Gestión de Bloqueos ---
@@ -217,11 +250,12 @@ public class Kernel {
             this.tipoActual = tipo;
 
             switch (tipo) {
+                case FCFS -> this.planificadorActual = schedulerFCFS;
                 case EDF -> this.planificadorActual = schedulerEDF;
                 case RR -> this.planificadorActual = schedulerRR;
                 case PRIORIDAD -> this.planificadorActual = schedulerPrio;
                 case SRT -> this.planificadorActual = schedulerSRT;
-                default -> this.planificadorActual = schedulerEDF;
+                default -> this.planificadorActual = schedulerFCFS;
             }
 
             String msg = "Sistema cambiado de " + anterior + " a " + tipo;
@@ -233,11 +267,12 @@ public class Kernel {
 
     public void setAlgorithm(String algorithm) {
         switch (algorithm) {
+            case "FCFS" -> setAlgoritmo(TipoAlgoritmo.FCFS);
             case "EDF" -> setAlgoritmo(TipoAlgoritmo.EDF);
             case "RR" -> setAlgoritmo(TipoAlgoritmo.RR);
             case "PRIO" -> setAlgoritmo(TipoAlgoritmo.PRIORIDAD);
             case "SRT" -> setAlgoritmo(TipoAlgoritmo.SRT);
-            default -> setAlgoritmo(TipoAlgoritmo.EDF);
+            default -> setAlgoritmo(TipoAlgoritmo.FCFS);
         }
     }
     
