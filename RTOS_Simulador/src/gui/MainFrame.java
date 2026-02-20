@@ -179,7 +179,7 @@ public class MainFrame extends JFrame {
         lblAlg.setForeground(TEXT_PRIMARY);
         bar.add(lblAlg);
 
-        cmbAlgorithm = new JComboBox<>(new String[]{"EDF", "RR", "PRIORIDAD", "SRT"});
+        cmbAlgorithm = new JComboBox<>(new String[]{"FCFS", "EDF", "RR", "PRIORIDAD", "SRT"});
         cmbAlgorithm.setFont(FONT_DATA);
         cmbAlgorithm.setBackground(BG_PANEL);
         cmbAlgorithm.setForeground(CYAN);
@@ -590,6 +590,7 @@ public class MainFrame extends JFrame {
     private void onAlgorithmChanged() {
         String selected = (String) cmbAlgorithm.getSelectedItem();
         switch (selected) {
+            case "FCFS" -> kernel.setAlgorithm("FCFS");
             case "EDF" -> kernel.setAlgorithm("EDF");
             case "RR" -> kernel.setAlgorithm("RR");
             case "PRIORIDAD" -> kernel.setAlgorithm("PRIO");
