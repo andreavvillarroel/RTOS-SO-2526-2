@@ -346,7 +346,7 @@ public class MainFrame extends JFrame {
         btnMeteor.setFocusPainted(false);
         btnMeteor.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(new Color(255, 80, 80), 2),
-                BorderFactory.createEmptyBorder(10, 15, 10, 15)));
+                BorderFactory.createEmptyBorder(8, 12, 8, 12)));
         btnMeteor.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         btnMeteor.addActionListener(e -> onMeteorImpact());
         panel.add(btnMeteor, gbc);
@@ -365,27 +365,27 @@ public class MainFrame extends JFrame {
         panel.add(btnStress, gbc);
 
         // Botones de serialización
-        gbc.gridy = 2;
+        gbc.gridy = 3;
         JButton btnSave = styledButton("💾 GUARDAR MISIÓN", CYAN);
         btnSave.addActionListener(e -> onSaveState());
         panel.add(btnSave, gbc);
 
-        gbc.gridy = 3;
+        gbc.gridy = 4;
         JButton btnLoad = styledButton("📂 CARGAR MISIÓN", CYAN);
         btnLoad.addActionListener(e -> onLoadState());
         panel.add(btnLoad, gbc);
 
         return panel;
     }
-    private void onStressLoad() {        // 1. Usamos fábrica para generar 20 procesos
-        int cantidad = 20;
-        estructuras.ListaDobleEnlazada<modelos.Process> nuevosProcesos = utils.ProcessFactory.createStressLoad(cantidad);
-        for (int i = 0; i < nuevosProcesos.getSize(); i++) {
-            kernel.addProcess(nuevosProcesos.get(i));
-        }
-        logEvent("⚡ CARGA DE ESTRÉS: " + cantidad + " procesos generados por ProcessFactory.");
-        refreshAllTables();
-    }
+//    private void onStressLoad() {        // 1. Usamos fábrica para generar 20 procesos
+//        int cantidad = 20;
+//        estructuras.ListaDobleEnlazada<modelos.Process> nuevosProcesos = utils.ProcessFactory.createStressLoad(cantidad);
+//        for (int i = 0; i < nuevosProcesos.getSize(); i++) {
+//            kernel.addProcess(nuevosProcesos.get(i));
+//        }
+//        logEvent("⚡ CARGA DE ESTRÉS: " + cantidad + " procesos generados por ProcessFactory.");
+//        refreshAllTables();
+//    }
 
     // =====================================================================
     // TABLAS DE COLAS
@@ -567,7 +567,7 @@ public class MainFrame extends JFrame {
             btnStartPause.setText("⏸ PAUSAR");
             btnStartPause.setBackground(YELLOW);
             btnStop.setEnabled(true);
-            cmbAlgorithm.setEnabled(false);
+            cmbAlgorithm.setEnabled(true);
         } else if (clock != null && clock.isRunning()) {
             if (clock.isPaused()) {
                 clock.resumeSimulation();
@@ -642,6 +642,13 @@ public class MainFrame extends JFrame {
         kernel.addProcess(p);
         logEvent("⊕ Inyectado: " + name + " (prio=" + prio
                 + ", inst=" + inst + ", deadline=" + deadline + ")");
+        refreshAllTables();
+    }
+    
+    private void onStressLoad() {
+        ListaDobleEnlazada<Process> batch = ProcessFactory.createStressLoad(20);
+        kernel.addBulkProcesses(batch);
+        logEvent("⚡ CARGA DE ESTRÉS: 20 procesos inyectados de golpe");
         refreshAllTables();
     }
 
@@ -853,10 +860,7 @@ public class MainFrame extends JFrame {
         refreshTable(modelBlocked, kernel.getMemory().getBlockedQueue());
         refreshTable(modelSuspReady, kernel.getMemory().getSuspendedReadyQueue());
         refreshTable(modelSuspBlocked, kernel.getMemory().getSuspendedBlockedQueue());
-
-        // Tabla de terminados: no tenemos cola, reconstruir desde contexto
-        // Por ahora, mostrar vacía (los terminados salen del sistema)
-        modelFinished.setRowCount(0);
+        refreshTable(modelFinished, kernel.getMemory().getFinishedQueue());
     }
 
     private void refreshTable(DefaultTableModel model, MyQueue<Process> queue) {

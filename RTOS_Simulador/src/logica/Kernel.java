@@ -35,7 +35,7 @@ public class Kernel {
     private final ListaDobleEnlazada<String> eventLog;
 
     public Kernel() {
-        this.memory = new Memory(5); // Iniciamos RAM con límite de 5
+        this.memory = new Memory(10); // Iniciamos RAM con límite de 5
         this.cpu = new CPU();
         this.mutex = new Semaphore(1);
         
@@ -234,6 +234,7 @@ public class Kernel {
                     inCpu.setStatus("Terminado");
                     cpu.release();
                     planificadorActual.onProcessLeavesCpu(inCpu);
+                    memory.getFinishedQueue().enqueue(inCpu);
                     procesosTerminados++;
                 }
             }

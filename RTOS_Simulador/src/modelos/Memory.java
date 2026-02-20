@@ -17,6 +17,9 @@ public class Memory {
     private MyQueue<Process> suspendedReadyQueue;
     private MyQueue<Process> suspendedBlockedQueue;
     
+    // Terminados
+    private MyQueue<Process> finishedQueue;
+    
     private int maxRamProcesses;
 
     public Memory(int maxRam) {
@@ -24,6 +27,7 @@ public class Memory {
         this.blockedQueue = new MyQueue<>();
         this.suspendedReadyQueue = new MyQueue<>();
         this.suspendedBlockedQueue = new MyQueue<>();
+        this.finishedQueue = new MyQueue<>();
         this.maxRamProcesses = maxRam;
     }
 
@@ -32,6 +36,7 @@ public class Memory {
     public MyQueue<Process> getBlockedQueue() { return blockedQueue; }
     public MyQueue<Process> getSuspendedReadyQueue() { return suspendedReadyQueue; }
     public MyQueue<Process> getSuspendedBlockedQueue() { return suspendedBlockedQueue; }
+    public MyQueue<Process> getFinishedQueue() { return finishedQueue; }
 
     public int getMaxRamProcesses() { return maxRamProcesses; }
     public void setMaxRamProcesses(int max) { this.maxRamProcesses = max; }
