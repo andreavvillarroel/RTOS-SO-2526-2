@@ -671,16 +671,11 @@ public class MainFrame extends JFrame {
     }
 
     private void onAlgorithmChanged() {
-        String selected = (String) cmbAlgorithm.getSelectedItem();
-        switch (selected) {
-            case "FCFS" -> kernel.setAlgorithm("FCFS");
-            case "EDF" -> kernel.setAlgorithm("EDF");
-            case "RR" -> kernel.setAlgorithm("RR");
-            case "PRIORIDAD" -> kernel.setAlgorithm("PRIO");
-            case "SRT" -> kernel.setAlgorithm("SRT");
-        }
-        logEvent("Algoritmo cambiado a: " + selected);
-    }
+    String selected = (String) cmbAlgorithm.getSelectedItem();
+    int ciclo = (clock != null) ? clock.getTotalCycles() : 0; // Obtener ciclo actual
+    kernel.setAlgorithm(selected, ciclo); // <-- Pasar ciclo
+    logEvent("Algoritmo cambiado a: " + selected);
+}
 
     private void onSpeedChanged() {
         int ms = sliderSpeed.getValue();
@@ -692,7 +687,8 @@ public class MainFrame extends JFrame {
     
     private void onRamLimitChanged() {
         int newLimit = (int) spinnerRam.getValue();
-        kernel.updateRamLimit(newLimit);
+        int ciclo = (clock != null) ? clock.getTotalCycles() : 0; // Obtener ciclo actual
+        kernel.updateRamLimit(newLimit,ciclo);
         logEvent("Límite de RAM actualizado a " + newLimit + " procesos");
         refreshAllTables();
     }
@@ -791,7 +787,7 @@ public class MainFrame extends JFrame {
                 }
 
                 String algName = (String) ois.readObject();
-                kernel.setAlgorithm(algName);
+                kernel.setAlgorithm(algName,0);
 
                 int quantum = ois.readInt();
                 kernel.setQuantum(quantum);
