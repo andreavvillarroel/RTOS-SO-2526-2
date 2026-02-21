@@ -141,7 +141,7 @@ public class Kernel {
 //        } catch (InterruptedException e) { e.printStackTrace(); }
 //    }
 
-    public void updateBlockedProcesses() {
+    public void updateBlockedProcesses(int currentCycle) {
         try {
             mutex.acquire();
             
@@ -182,7 +182,7 @@ public class Kernel {
                 System.out.println("[SWAP-OUT] " + victim.getName()
                         + " movido a Bloqueado-Suspendido (E/S restante="
                         + victim.getRemainingIoTime() + ")");
-                fireEvent(0, victim.getName() + " movido a Bloqueado-Suspendido");
+                fireEvent(currentCycle, victim.getName() + " movido a Bloqueado-Suspendido");
             }
             
             mutex.release();
@@ -288,7 +288,7 @@ public class Kernel {
     }
     
     // --- Cambio dinámico de algoritmo ---
-    public void setAlgoritmo(TipoAlgoritmo tipo) {
+    public void setAlgoritmo(TipoAlgoritmo tipo, int currentCycle) {
         try {
             mutex.acquire();
             TipoAlgoritmo anterior = this.tipoActual;
@@ -305,19 +305,19 @@ public class Kernel {
 
             String msg = "Sistema cambiado de " + anterior + " a " + tipo;
             System.out.println("[KERNEL] " + msg);
-            fireEvent(0, msg);
+            fireEvent(currentCycle, msg);
             mutex.release();
         } catch (InterruptedException e) { e.printStackTrace(); }
     }
 
-    public void setAlgorithm(String algorithm) {
+    public void setAlgorithm(String algorithm, int currentCycle) {
         switch (algorithm) {
-            case "FCFS" -> setAlgoritmo(TipoAlgoritmo.FCFS);
-            case "EDF" -> setAlgoritmo(TipoAlgoritmo.EDF);
-            case "RR" -> setAlgoritmo(TipoAlgoritmo.RR);
-            case "PRIO" -> setAlgoritmo(TipoAlgoritmo.PRIORIDAD);
-            case "SRT" -> setAlgoritmo(TipoAlgoritmo.SRT);
-            default -> setAlgoritmo(TipoAlgoritmo.FCFS);
+            case "FCFS" -> setAlgoritmo(TipoAlgoritmo.FCFS, currentCycle);
+            case "EDF" -> setAlgoritmo(TipoAlgoritmo.EDF, currentCycle);
+            case "RR" -> setAlgoritmo(TipoAlgoritmo.RR, currentCycle);
+            case "PRIO" -> setAlgoritmo(TipoAlgoritmo.PRIORIDAD, currentCycle);
+            case "SRT" -> setAlgoritmo(TipoAlgoritmo.SRT, currentCycle);
+            default -> setAlgoritmo(TipoAlgoritmo.FCFS, currentCycle);
         }
     }
     
@@ -352,7 +352,7 @@ public class Kernel {
      * mueve los excedentes a SWAP priorizando sacar al de deadline más lejano
      * (el menos urgente, para proteger la misión).
      */
-    public void updateRamLimit(int newLimit) {
+    public void updateRamLimit(int newLimit, int currentCycle) {
         try {
             mutex.acquire();
             int oldLimit = memory.getMaxRamProcesses();
@@ -378,7 +378,7 @@ public class Kernel {
             }
 
             System.out.println("[KERNEL] Límite de RAM actualizado a " + newLimit + " procesos");
-            logEvent(0, "Límite de RAM actualizado a " + newLimit + " procesos");
+            logEvent(currentCycle, "Límite de RAM actualizado a " + newLimit + " procesos");
             mutex.release();
         } catch (InterruptedException ex) { ex.printStackTrace(); }
     }

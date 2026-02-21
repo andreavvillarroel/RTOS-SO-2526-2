@@ -57,7 +57,7 @@ public class SimulationClock extends Thread {
                 if (!running) break;
                 
                 totalCycles++;
-                kernel.updateBlockedProcesses();
+                kernel.updateBlockedProcesses(totalCycles);
                 
                 // Delegamos toda la lógica al planificador activo del Kernel
                 kernel.executeCycle(totalCycles);

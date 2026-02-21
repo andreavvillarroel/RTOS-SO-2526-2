@@ -100,6 +100,9 @@ public class MainFrame extends JFrame {
     private JSpinner spinnerRam;
     private JProgressBar progressRam;
     
+    // === Control de eventos ===
+    private boolean suppressAlgorithmEvent = false;
+    
     // === Métricas adicionales ===
     private JLabel lblMetricWaitAvg;
 
@@ -671,16 +674,25 @@ public class MainFrame extends JFrame {
     }
 
     private void onAlgorithmChanged() {
-        String selected = (String) cmbAlgorithm.getSelectedItem();
-        switch (selected) {
-            case "FCFS" -> kernel.setAlgorithm("FCFS");
-            case "EDF" -> kernel.setAlgorithm("EDF");
-            case "RR" -> kernel.setAlgorithm("RR");
-            case "PRIORIDAD" -> kernel.setAlgorithm("PRIO");
-            case "SRT" -> kernel.setAlgorithm("SRT");
-        }
-        logEvent("Algoritmo cambiado a: " + selected);
+        if (suppressAlgorithmEvent) return;
+        applySelectedAlgorithm();
     }
+
+    /**
+     * Aplica el algoritmo seleccionado en el combo al Kernel.
+     * No genera log (para evitar duplicados al iniciar).
+     */
+    private void applySelectedAlgorithm() {
+    String selected = (String) cmbAlgorithm.getSelectedItem();
+    int cycle = (clock != null) ? clock.getTotalCycles() : 0;
+    switch (selected) {
+        case "FCFS" -> kernel.setAlgorithm("FCFS", cycle);
+        case "EDF" -> kernel.setAlgorithm("EDF", cycle);
+        case "RR" -> kernel.setAlgorithm("RR", cycle);
+        case "PRIORIDAD" -> kernel.setAlgorithm("PRIO", cycle);
+        case "SRT" -> kernel.setAlgorithm("SRT", cycle);
+    }
+}
 
     private void onSpeedChanged() {
         int ms = sliderSpeed.getValue();
@@ -692,7 +704,8 @@ public class MainFrame extends JFrame {
     
     private void onRamLimitChanged() {
         int newLimit = (int) spinnerRam.getValue();
-        kernel.updateRamLimit(newLimit);
+        int ciclo = (clock != null) ? clock.getTotalCycles() : 0; // Obtener ciclo actual
+        kernel.updateRamLimit(newLimit,ciclo);
         logEvent("Límite de RAM actualizado a " + newLimit + " procesos");
         refreshAllTables();
     }
@@ -791,7 +804,7 @@ public class MainFrame extends JFrame {
                 }
 
                 String algName = (String) ois.readObject();
-                kernel.setAlgorithm(algName);
+                kernel.setAlgorithm(algName,0);
 
                 int quantum = ois.readInt();
                 kernel.setQuantum(quantum);
@@ -818,7 +831,10 @@ public class MainFrame extends JFrame {
     // =====================================================================
 
     private void startSimulation() {
-        onAlgorithmChanged();
+        // Aplicar algoritmo sin disparar evento duplicado
+        suppressAlgorithmEvent = true;
+        applySelectedAlgorithm();
+        suppressAlgorithmEvent = false;
         kernel.setQuantum(3);
 
         clock = new SimulationClock(sliderSpeed.getValue(), kernel);
@@ -1072,16 +1088,19 @@ public class MainFrame extends JFrame {
         StyledDocument doc = txtLog.getStyledDocument();
         String styleName;
 
-        if (message.contains("☄") || message.contains("METEORITO") || message.contains("INTERRUPCIÓN")) {
+        if (message.contains("☄") || message.contains("METEORITO") || message.contains("INTERRUPCIÓN")
+                || message.contains("meteorito")) {
             styleName = "meteor";
-        } else if (message.contains("¡ALERTA!") || message.contains("FALLO") || message.contains("Fallo")) {
+        } else if (message.contains("¡ALERTA!") || message.contains("FALLO") || message.contains("Fallo")
+                || message.contains("fallo") || message.contains("deadline")) {
             styleName = "alert";
-        } else if (message.contains("E/S") || message.contains("Bloqueado")) {
+        } else if (message.contains("E/S") || message.contains("Bloqueado") || message.contains("bloqueado")) {
             styleName = "io";
         } else if (message.contains("✓") || message.contains("completado") || message.contains("TERMINADO")) {
             styleName = "complete";
         } else if (message.contains("cambiado") || message.contains("RAM") || message.contains("Swap")
-                || message.contains("ESTRÉS") || message.contains("Inyectado")) {
+                || message.contains("ESTRÉS") || message.contains("Inyectado") || message.contains("inyectado")
+                || message.contains("Límite") || message.contains("iniciada")) {
             styleName = "system";
         } else {
             styleName = "normal";
